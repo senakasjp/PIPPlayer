@@ -6,6 +6,9 @@ struct ContentView: View {
     @State private var webView: WKWebView
     @State private var isDropTargeted = false
     @State private var statusMessage = "Drop a YouTube URL to play"
+    @State private var isTransparent = true
+    @State private var isAlwaysOnTop = true
+    @State private var isHovering = false
 
     init() {
         let config = WKWebViewConfiguration()
@@ -58,11 +61,21 @@ struct ContentView: View {
                 }
             }
         }
+        .onHover { hovering in
+            isHovering = hovering
+            handleHoverChange(hovering)
+        }
         .onDrop(of: [.url, .text], isTargeted: $isDropTargeted) { providers in
             handleDrop(providers: providers)
         }
         .onReceive(NotificationCenter.default.publisher(for: .openURL)) { _ in
             promptForURL()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .toggleTransparency)) { _ in
+            toggleTransparency()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .toggleLayer)) { _ in
+            toggleLayer()
         }
         .onAppear {
             configureWindow()
@@ -136,6 +149,72 @@ struct ContentView: View {
                 window.isOpaque = false
                 window.backgroundColor = .black
                 window.level = .floating
+
+                // Start opaque and clickable
+                window.alphaValue = 1.0
+                window.ignoresMouseEvents = false
+            }
+        }
+    }
+
+    func handleHoverChange(_ hovering: Bool) {
+        guard isTransparent else { return }
+        DispatchQueue.main.async {
+            if let window = NSApplication.shared.windows.first {
+                if hovering {
+                    // Mouse over: make transparent and click-through
+                    window.alphaValue = 0.2
+                    window.ignoresMouseEvents = true
+                } else {
+                    // Mouse away: make opaque and clickable
+                    window.alphaValue = 1.0
+                    window.ignoresMouseEvents = false
+                }
+            }
+        }
+    }
+
+    func toggleTransparency() {
+        DispatchQueue.main.async {
+            if let window = NSApplication.shared.windows.first {
+                isTransparent.toggle()
+                if isTransparent {
+                    // In transparent mode, window responds to hover
+                    statusMessage = "Hover mode enabled"
+                    // Reset to opaque until hover
+                    window.alphaValue = 1.0
+                    window.ignoresMouseEvents = false
+                } else {
+                    // Always opaque and clickable
+                    window.alphaValue = 1.0
+                    window.ignoresMouseEvents = false
+                    statusMessage = "Hover mode disabled"
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                    if statusMessage == "Hover mode enabled" || statusMessage == "Hover mode disabled" {
+                        statusMessage = ""
+                    }
+                }
+            }
+        }
+    }
+
+    func toggleLayer() {
+        DispatchQueue.main.async {
+            if let window = NSApplication.shared.windows.first {
+                isAlwaysOnTop.toggle()
+                if isAlwaysOnTop {
+                    window.level = .floating
+                    statusMessage = "Always on top enabled"
+                } else {
+                    window.level = .normal
+                    statusMessage = "Always on top disabled"
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                    if statusMessage == "Always on top enabled" || statusMessage == "Always on top disabled" {
+                        statusMessage = ""
+                    }
+                }
             }
         }
     }
