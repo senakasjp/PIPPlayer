@@ -1,0 +1,9 @@
+Command line invocation:
+    /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild -project YouTubePlayer.xcodeproj -scheme YouTubePlayer -configuration Debug -derivedDataPath build/DerivedDataLocal CODE_SIGNING_ALLOWED=NO build
+
+Build settings from command line:
+    CODE_SIGNING_ALLOWED = NO
+
+Build Preparation
+Couldn't create workspace arena folder '/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/build/DerivedDataLocal': Unable to write to info file '<DVTFilePath:0x11a0d5dd0:'/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/build/DerivedDataLocal/info.plist'>'.
+

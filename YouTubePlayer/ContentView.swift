@@ -149,6 +149,8 @@ struct ContentView: View {
                 window.isOpaque = false
                 window.backgroundColor = .black
                 window.level = .floating
+                window.collectionBehavior.insert(.canJoinAllSpaces)
+                window.collectionBehavior.insert(.fullScreenAuxiliary)
 
                 // Start opaque and clickable
                 window.alphaValue = 1.0
@@ -163,7 +165,7 @@ struct ContentView: View {
             if let window = NSApplication.shared.windows.first {
                 if hovering {
                     // Mouse over: make transparent and click-through
-                    window.alphaValue = 0.2
+                    window.alphaValue = 0.1
                     window.ignoresMouseEvents = true
                 } else {
                     // Mouse away: make opaque and clickable

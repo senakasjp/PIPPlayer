@@ -6,7 +6,7 @@ A minimalist, floating YouTube player for macOS with hover-based transparency an
 
 ### Core Functionality
 - **Floating Window**: Always stays on top of other applications (toggleable)
-- **Hover Transparency**: Window becomes 80% transparent and click-through when you hover over it
+- **Hover Transparency**: Window becomes 90% transparent and click-through when you hover over it
 - **Menu Bar Control**: Quick access to all features via a menu bar icon
 - **Drag & Drop**: Simply drag YouTube URLs onto the player window
 - **Minimal UI**: Clean interface with hidden scrollbars and YouTube header
@@ -74,7 +74,7 @@ The app implements a sophisticated hover-based transparency system:
 
 #### Default Mode (Transparency Enabled)
 1. **Not Hovering**: Window is opaque (alpha = 1.0), clickable
-2. **Hovering**: Window becomes transparent (alpha = 0.2), click-through enabled
+2. **Hovering**: Window becomes transparent (alpha = 0.1), click-through enabled
 3. **Mouse Exits**: Returns to opaque and clickable
 
 #### Disabled Mode (Transparency Off)
@@ -84,13 +84,13 @@ The app implements a sophisticated hover-based transparency system:
 ```swift
 func handleHoverChange(_ hovering: Bool) {
     guard isTransparent else { return }
-    if hovering {
-        window.alphaValue = 0.2          // 80% transparent
-        window.ignoresMouseEvents = true  // Click-through
-    } else {
-        window.alphaValue = 1.0          // Opaque
-        window.ignoresMouseEvents = false // Clickable
-    }
+        if hovering {
+            window.alphaValue = 0.1          // 90% transparent
+            window.ignoresMouseEvents = true  // Click-through
+        } else {
+            window.alphaValue = 1.0          // Opaque
+            window.ignoresMouseEvents = false // Clickable
+        }
 }
 ```
 
@@ -102,6 +102,8 @@ window.styleMask.insert(.fullSizeContentView)  // Full window content
 window.isOpaque = false                   // Allow transparency
 window.backgroundColor = .black           // Black background
 window.level = .floating                  // Always on top
+window.collectionBehavior.insert(.canJoinAllSpaces)    // Follow space changes
+window.collectionBehavior.insert(.fullScreenAuxiliary) // Visible with fullscreen apps
 ```
 
 ### CSS Customization
