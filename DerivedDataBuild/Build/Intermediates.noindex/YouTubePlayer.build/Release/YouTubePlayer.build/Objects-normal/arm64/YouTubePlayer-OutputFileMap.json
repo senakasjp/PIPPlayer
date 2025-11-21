@@ -1,0 +1,31 @@
+{
+  "" : {
+    "const-values" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Release/YouTubePlayer.build/Objects-normal/arm64/YouTubePlayer-primary.swiftconstvalues",
+    "dependencies" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Release/YouTubePlayer.build/Objects-normal/arm64/YouTubePlayer-primary.d",
+    "diagnostics" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Release/YouTubePlayer.build/Objects-normal/arm64/YouTubePlayer-primary.dia",
+    "emit-module-dependencies" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Release/YouTubePlayer.build/Objects-normal/arm64/YouTubePlayer-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Release/YouTubePlayer.build/Objects-normal/arm64/YouTubePlayer-primary-emit-module.dia",
+    "pch" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Release/YouTubePlayer.build/Objects-normal/arm64/YouTubePlayer-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Release/YouTubePlayer.build/Objects-normal/arm64/YouTubePlayer-primary.swiftdeps"
+  },
+  "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/YouTubePlayer/ContentView.swift" : {
+    "index-unit-output-path" : "/YouTubePlayer.build/Release/YouTubePlayer.build/Objects-normal/arm64/ContentView.o",
+    "llvm-bc" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Release/YouTubePlayer.build/Objects-normal/arm64/ContentView.bc",
+    "object" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Release/YouTubePlayer.build/Objects-normal/arm64/ContentView.o"
+  },
+  "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/YouTubePlayer/URLHelper.swift" : {
+    "index-unit-output-path" : "/YouTubePlayer.build/Release/YouTubePlayer.build/Objects-normal/arm64/URLHelper.o",
+    "llvm-bc" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Release/YouTubePlayer.build/Objects-normal/arm64/URLHelper.bc",
+    "object" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Release/YouTubePlayer.build/Objects-normal/arm64/URLHelper.o"
+  },
+  "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/YouTubePlayer/WebView.swift" : {
+    "index-unit-output-path" : "/YouTubePlayer.build/Release/YouTubePlayer.build/Objects-normal/arm64/WebView.o",
+    "llvm-bc" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Release/YouTubePlayer.build/Objects-normal/arm64/WebView.bc",
+    "object" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Release/YouTubePlayer.build/Objects-normal/arm64/WebView.o"
+  },
+  "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/YouTubePlayer/YouTubePlayerApp.swift" : {
+    "index-unit-output-path" : "/YouTubePlayer.build/Release/YouTubePlayer.build/Objects-normal/arm64/YouTubePlayerApp.o",
+    "llvm-bc" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Release/YouTubePlayer.build/Objects-normal/arm64/YouTubePlayerApp.bc",
+    "object" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Release/YouTubePlayer.build/Objects-normal/arm64/YouTubePlayerApp.o"
+  }
+}

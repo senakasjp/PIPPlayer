@@ -10,6 +10,12 @@ struct YouTubePlayerApp: App {
         }
         .commands {
             CommandGroup(replacing: .newItem) {}
+            CommandMenu("View") {
+                Button("Toggle Opacity") {
+                    NotificationCenter.default.post(name: .toggleOpacity, object: nil)
+                }
+                .keyboardShortcut("p", modifiers: .command)
+            }
             CommandMenu("Player") {
                 Button("Open URL...") {
                     NotificationCenter.default.post(name: .openURL, object: nil)
@@ -64,4 +70,5 @@ extension Notification.Name {
     static let openURL = Notification.Name("openURL")
     static let toggleTransparency = Notification.Name("toggleTransparency")
     static let toggleLayer = Notification.Name("toggleLayer")
+    static let toggleOpacity = Notification.Name("toggleOpacity")
 }

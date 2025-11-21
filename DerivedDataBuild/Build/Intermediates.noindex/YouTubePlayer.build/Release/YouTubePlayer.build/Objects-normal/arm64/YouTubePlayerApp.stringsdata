@@ -1,0 +1,40 @@
+{
+  "source": "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/YouTubePlayer/YouTubePlayerApp.swift",
+  "tables": {
+    "Localizable": [
+      {
+        "comment": "",
+        "key": "View",
+        "location": {
+          "startingColumn": 25,
+          "startingLine": 13
+        }
+      },
+      {
+        "comment": "",
+        "key": "Player",
+        "location": {
+          "startingColumn": 25,
+          "startingLine": 19
+        }
+      },
+      {
+        "comment": "",
+        "key": "Toggle Opacity",
+        "location": {
+          "startingColumn": 24,
+          "startingLine": 14
+        }
+      },
+      {
+        "comment": "",
+        "key": "Open URL...",
+        "location": {
+          "startingColumn": 24,
+          "startingLine": 20
+        }
+      }
+    ]
+  },
+  "version": 1
+}

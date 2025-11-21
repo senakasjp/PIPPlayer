@@ -8,6 +8,7 @@ struct ContentView: View {
     @State private var statusMessage = "Drop a YouTube URL to play"
     @State private var isTransparent = true
     @State private var isAlwaysOnTop = true
+    @State private var isDimmed = false
     @State private var isHovering = false
 
     init() {
@@ -76,6 +77,9 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .toggleLayer)) { _ in
             toggleLayer()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .toggleOpacity)) { _ in
+            toggleOpacity()
         }
         .onAppear {
             configureWindow()
@@ -149,6 +153,7 @@ struct ContentView: View {
                 window.isOpaque = false
                 window.backgroundColor = .black
                 window.level = .floating
+                // Stay visible across Spaces and alongside fullscreen apps
                 window.collectionBehavior.insert(.canJoinAllSpaces)
                 window.collectionBehavior.insert(.fullScreenAuxiliary)
 
@@ -206,6 +211,8 @@ struct ContentView: View {
             if let window = NSApplication.shared.windows.first {
                 isAlwaysOnTop.toggle()
                 if isAlwaysOnTop {
+                    window.collectionBehavior.insert(.canJoinAllSpaces)
+                    window.collectionBehavior.insert(.fullScreenAuxiliary)
                     window.level = .floating
                     statusMessage = "Always on top enabled"
                 } else {
@@ -216,6 +223,25 @@ struct ContentView: View {
                     if statusMessage == "Always on top enabled" || statusMessage == "Always on top disabled" {
                         statusMessage = ""
                     }
+                }
+            }
+        }
+    }
+
+    func toggleOpacity() {
+        DispatchQueue.main.async {
+            guard let window = NSApplication.shared.windows.first else { return }
+            isDimmed.toggle()
+
+            // Dim to 25% or restore to fully opaque; keep clicks enabled
+            let newOpacity: CGFloat = isDimmed ? 0.25 : 1.0
+            window.alphaValue = newOpacity
+            window.ignoresMouseEvents = false
+
+            statusMessage = isDimmed ? "Opacity 25%" : "Opacity 100%"
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                if statusMessage == "Opacity 25%" || statusMessage == "Opacity 100%" {
+                    statusMessage = ""
                 }
             }
         }
