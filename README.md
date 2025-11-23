@@ -7,9 +7,12 @@ A minimalist, floating YouTube player for macOS with hover-based transparency an
 ### Core Functionality
 - **Floating Window**: Always stays on top of other applications (toggleable)
 - **Hover Transparency**: Window becomes 90% transparent and click-through when you hover over it
+- **80% Transparency Preset**: One-tap 80% opacity that stays clickable (⌘8)
+- **Opacity Dimmer**: Toggle to 25% opacity while keeping clicks active (⌘P)
 - **Menu Bar Control**: Quick access to all features via a menu bar icon
 - **Drag & Drop**: Simply drag YouTube URLs onto the player window
 - **Minimal UI**: Clean interface with hidden scrollbars and YouTube header
+- **URL Persistence**: Remembers and reloads the last played YouTube URL on launch
 
 ### Controls
 
@@ -18,6 +21,8 @@ Click the play button icon in the menu bar to access:
 - **Open URL...** (⌘O) - Open a YouTube video by URL
 - **Toggle Transparency** (⌘T) - Enable/disable hover transparency mode
 - **Toggle Always On Top** (⌘L) - Control whether window floats above others
+- **80% Transparency** (⌘8) - Set a fixed 80% transparent, still-clickable window
+- **Toggle Opacity** (⌘P) - Dim to 25% opacity (clickable) or restore to 100%
 - **Quit** (⌘Q) - Close the application
 
 ## Design Architecture
@@ -176,10 +181,15 @@ Version/17.0 Safari/605.1.15
 2. Move mouse over window to make it transparent and click-through
 3. Move mouse away to interact with the player
 
+### Opacity Presets
+- **80% Transparency (clickable)**: Menu → "80% Transparency" (⌘8). Keeps the window interactive while semi-transparent.
+- **25% Dimmer (clickable)**: Menu → "Toggle Opacity" (⌘P). Dims to 25% while keeping clicks active; press again to restore 100%.
+
 ### Window Behavior
 - **Always On Top**: Enabled by default, toggle with ⌘L
 - **Transparent Titlebar**: Window controls blend seamlessly
 - **Black Background**: Clean viewing experience
+- **Last URL Persistence**: The last played YouTube URL is reloaded on launch
 
 ## Design Philosophy
 
@@ -214,6 +224,29 @@ Potential features for future versions:
 
 - macOS 13.0 or later
 - Xcode 15.0+ (for building)
+
+## Rebuilding the App
+
+1. Install Xcode 15+ and sign in with an Apple ID (for automatic signing).
+2. Open `YouTubePlayer.xcodeproj` in Xcode.
+3. Select the `YouTubePlayer` scheme and your target Mac under the run destination.
+4. Build and run with `⌘R` for a debug build.
+
+### Command-Line Build (Release)
+
+You can also rebuild without opening Xcode:
+
+```bash
+xcodebuild \
+  -project YouTubePlayer.xcodeproj \
+  -scheme YouTubePlayer \
+  -configuration Release \
+  -derivedDataPath ./DerivedDataBuild \
+  clean build
+```
+
+- The signed app will be at `DerivedDataBuild/Build/Products/Release/YouTubePlayer.app`.
+- Copy it to `/Applications` (or wherever you prefer) to run it outside Xcode.
 
 ## License
 
