@@ -1,16 +1,41 @@
 import SwiftUI
+import Combine
+
+final class AppSettings: ObservableObject {
+    static let shared = AppSettings()
+
+    @Published var alwaysOnTopEnabled: Bool = true {
+        didSet {
+            NotificationCenter.default.post(name: .setAlwaysOnTop, object: nil, userInfo: ["enabled": alwaysOnTopEnabled])
+        }
+    }
+
+    @Published var eightyTransparencyEnabled: Bool = false {
+        didSet {
+            NotificationCenter.default.post(name: .setEightyTransparency, object: nil, userInfo: ["enabled": eightyTransparencyEnabled])
+        }
+    }
+
+    private init() {}
+}
 
 @main
 struct YouTubePlayerApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    @StateObject private var settings = AppSettings.shared
 
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .environmentObject(settings)
         }
         .commands {
             CommandGroup(replacing: .newItem) {}
-            CommandMenu("View") {
+            CommandGroup(after: .sidebar) {
+                Toggle("Always On Top", isOn: $settings.alwaysOnTopEnabled)
+                    .keyboardShortcut("l", modifiers: .command)
+                Toggle("80% Transparency", isOn: $settings.eightyTransparencyEnabled)
+                    .keyboardShortcut("8", modifiers: .command)
                 Button("Toggle Opacity") {
                     NotificationCenter.default.post(name: .toggleOpacity, object: nil)
                 }
@@ -28,6 +53,10 @@ struct YouTubePlayerApp: App {
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem?
+    private let settings = AppSettings.shared
+    private var observers: [NSObjectProtocol] = []
+    private var alwaysOnTopItem: NSMenuItem?
+    private var eightyTransparencyItem: NSMenuItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Create menu bar icon
@@ -38,6 +67,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         setupMenu()
+        installObservers()
     }
 
     func setupMenu() {
@@ -45,8 +75,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(NSMenuItem(title: "Open URL...", action: #selector(openURL), keyEquivalent: "o"))
         menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "Toggle Transparency", action: #selector(toggleTransparency), keyEquivalent: "t"))
-        menu.addItem(NSMenuItem(title: "Toggle Always On Top", action: #selector(toggleLayer), keyEquivalent: "l"))
+        menu.addItem(NSMenuItem(title: "Hover Transparency", action: #selector(toggleTransparency), keyEquivalent: "t"))
+
+        let alwaysOnTop = NSMenuItem(title: "Always On Top", action: #selector(toggleAlwaysOnTop), keyEquivalent: "l")
+        alwaysOnTop.state = settings.alwaysOnTopEnabled ? .on : .off
+        menu.addItem(alwaysOnTop)
+        alwaysOnTopItem = alwaysOnTop
+
+        let eightyTransparency = NSMenuItem(title: "80% Transparency", action: #selector(toggleEightyTransparency), keyEquivalent: "8")
+        eightyTransparency.state = settings.eightyTransparencyEnabled ? .on : .off
+        menu.addItem(eightyTransparency)
+        eightyTransparencyItem = eightyTransparency
+
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
 
@@ -61,14 +101,37 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NotificationCenter.default.post(name: .toggleTransparency, object: nil)
     }
 
-    @objc func toggleLayer() {
-        NotificationCenter.default.post(name: .toggleLayer, object: nil)
+    @objc func toggleAlwaysOnTop(_ sender: NSMenuItem) {
+        settings.alwaysOnTopEnabled.toggle()
+    }
+
+    @objc func toggleEightyTransparency(_ sender: NSMenuItem) {
+        settings.eightyTransparencyEnabled.toggle()
+    }
+
+    private func installObservers() {
+        let center = NotificationCenter.default
+        observers.append(center.addObserver(forName: .setAlwaysOnTop, object: nil, queue: .main) { [weak self] notification in
+            if let enabled = notification.userInfo?["enabled"] as? Bool {
+                self?.alwaysOnTopItem?.state = enabled ? .on : .off
+            }
+        })
+        observers.append(center.addObserver(forName: .setEightyTransparency, object: nil, queue: .main) { [weak self] notification in
+            if let enabled = notification.userInfo?["enabled"] as? Bool {
+                self?.eightyTransparencyItem?.state = enabled ? .on : .off
+            }
+        })
+    }
+
+    deinit {
+        observers.forEach { NotificationCenter.default.removeObserver($0) }
     }
 }
 
 extension Notification.Name {
     static let openURL = Notification.Name("openURL")
     static let toggleTransparency = Notification.Name("toggleTransparency")
-    static let toggleLayer = Notification.Name("toggleLayer")
     static let toggleOpacity = Notification.Name("toggleOpacity")
+    static let setAlwaysOnTop = Notification.Name("setAlwaysOnTop")
+    static let setEightyTransparency = Notification.Name("setEightyTransparency")
 }

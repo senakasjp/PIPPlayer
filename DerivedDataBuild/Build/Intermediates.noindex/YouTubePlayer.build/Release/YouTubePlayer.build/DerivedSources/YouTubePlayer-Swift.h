@@ -306,12 +306,14 @@ typedef unsigned int swift_uint4  __attribute__((__ext_vector_type__(4)));
 #if defined(__OBJC__)
 
 @class NSNotification;
+@class NSMenuItem;
 SWIFT_CLASS("_TtC13YouTubePlayer11AppDelegate")
 @interface AppDelegate : NSObject <NSApplicationDelegate>
 - (void)applicationDidFinishLaunching:(NSNotification * _Nonnull)notification;
 - (void)openURL;
 - (void)toggleTransparency;
-- (void)toggleLayer;
+- (void)toggleAlwaysOnTop:(NSMenuItem * _Nonnull)sender;
+- (void)toggleEightyTransparency:(NSMenuItem * _Nonnull)sender;
 - (nonnull instancetype)init OBJC_DESIGNATED_INITIALIZER;
 @end
 

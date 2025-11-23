@@ -3,11 +3,13 @@ import WebKit
 import UniformTypeIdentifiers
 
 struct ContentView: View {
+    @EnvironmentObject var settings: AppSettings
     @State private var webView: WKWebView
     @State private var isDropTargeted = false
     @State private var statusMessage = "Drop a YouTube URL to play"
     @State private var isTransparent = true
     @State private var isAlwaysOnTop = true
+    @State private var isEightyTransparency = false
     @State private var isDimmed = false
     @State private var isHovering = false
 
@@ -75,14 +77,26 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .toggleTransparency)) { _ in
             toggleTransparency()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .toggleLayer)) { _ in
-            toggleLayer()
-        }
         .onReceive(NotificationCenter.default.publisher(for: .toggleOpacity)) { _ in
             toggleOpacity()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .setAlwaysOnTop)) { notification in
+            if let enabled = notification.userInfo?["enabled"] as? Bool {
+                setAlwaysOnTop(to: enabled)
+                settings.alwaysOnTopEnabled = enabled
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .setEightyTransparency)) { notification in
+            if let enabled = notification.userInfo?["enabled"] as? Bool {
+                setEightyTransparency(to: enabled)
+                settings.eightyTransparencyEnabled = enabled
+            }
+        }
         .onAppear {
             configureWindow()
+            // Sync initial state with settings
+            setAlwaysOnTop(to: settings.alwaysOnTopEnabled)
+            setEightyTransparency(to: settings.eightyTransparencyEnabled)
         }
     }
 
@@ -160,6 +174,7 @@ struct ContentView: View {
                 // Start opaque and clickable
                 window.alphaValue = 1.0
                 window.ignoresMouseEvents = false
+                ensureWindowFront(window)
             }
         }
     }
@@ -191,10 +206,12 @@ struct ContentView: View {
                     // Reset to opaque until hover
                     window.alphaValue = 1.0
                     window.ignoresMouseEvents = false
+                    ensureWindowFront(window)
                 } else {
                     // Always opaque and clickable
                     window.alphaValue = 1.0
                     window.ignoresMouseEvents = false
+                    ensureWindowFront(window)
                     statusMessage = "Hover mode disabled"
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
@@ -206,23 +223,23 @@ struct ContentView: View {
         }
     }
 
-    func toggleLayer() {
+    func setAlwaysOnTop(to enabled: Bool) {
         DispatchQueue.main.async {
-            if let window = NSApplication.shared.windows.first {
-                isAlwaysOnTop.toggle()
-                if isAlwaysOnTop {
-                    window.collectionBehavior.insert(.canJoinAllSpaces)
-                    window.collectionBehavior.insert(.fullScreenAuxiliary)
-                    window.level = .floating
-                    statusMessage = "Always on top enabled"
-                } else {
-                    window.level = .normal
-                    statusMessage = "Always on top disabled"
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                    if statusMessage == "Always on top enabled" || statusMessage == "Always on top disabled" {
-                        statusMessage = ""
-                    }
+            guard let window = NSApplication.shared.windows.first else { return }
+            isAlwaysOnTop = enabled
+            if enabled {
+                window.collectionBehavior.insert(.canJoinAllSpaces)
+                window.collectionBehavior.insert(.fullScreenAuxiliary)
+                window.level = .floating
+                ensureWindowFront(window)
+                statusMessage = "Always on top enabled"
+            } else {
+                window.level = .normal
+                statusMessage = "Always on top disabled"
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                if statusMessage == "Always on top enabled" || statusMessage == "Always on top disabled" {
+                    statusMessage = ""
                 }
             }
         }
@@ -232,6 +249,8 @@ struct ContentView: View {
         DispatchQueue.main.async {
             guard let window = NSApplication.shared.windows.first else { return }
             isDimmed.toggle()
+            isEightyTransparency = false
+            isTransparent = false
 
             // Dim to 25% or restore to fully opaque; keep clicks enabled
             let newOpacity: CGFloat = isDimmed ? 0.25 : 1.0
@@ -245,5 +264,32 @@ struct ContentView: View {
                 }
             }
         }
+    }
+
+    func setEightyTransparency(to enabled: Bool) {
+        DispatchQueue.main.async {
+            guard let window = NSApplication.shared.windows.first else { return }
+            isEightyTransparency = enabled
+            isTransparent = false
+            isDimmed = false
+
+            let newOpacity: CGFloat = enabled ? 0.2 : 1.0
+            window.alphaValue = newOpacity
+            window.ignoresMouseEvents = false
+            ensureWindowFront(window)
+
+            statusMessage = enabled ? "Transparency 80% enabled" : "Transparency reset"
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                if statusMessage == "Transparency 80% enabled" || statusMessage == "Transparency reset" {
+                    statusMessage = ""
+                }
+            }
+        }
+    }
+
+    private func ensureWindowFront(_ window: NSWindow) {
+        window.level = isAlwaysOnTop ? .floating : .normal
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
 }

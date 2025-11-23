@@ -4,18 +4,26 @@
     "Localizable": [
       {
         "comment": "",
-        "key": "View",
+        "key": "Player",
         "location": {
           "startingColumn": 25,
-          "startingLine": 13
+          "startingLine": 44
         }
       },
       {
         "comment": "",
-        "key": "Player",
+        "key": "Always On Top",
         "location": {
-          "startingColumn": 25,
-          "startingLine": 19
+          "startingColumn": 24,
+          "startingLine": 35
+        }
+      },
+      {
+        "comment": "",
+        "key": "80% Transparency",
+        "location": {
+          "startingColumn": 24,
+          "startingLine": 37
         }
       },
       {
@@ -23,7 +31,7 @@
         "key": "Toggle Opacity",
         "location": {
           "startingColumn": 24,
-          "startingLine": 14
+          "startingLine": 39
         }
       },
       {
@@ -31,7 +39,7 @@
         "key": "Open URL...",
         "location": {
           "startingColumn": 24,
-          "startingLine": 20
+          "startingLine": 45
         }
       }
     ]
