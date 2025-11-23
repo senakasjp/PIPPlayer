@@ -12,6 +12,8 @@ struct ContentView: View {
     @State private var isEightyTransparency = false
     @State private var isDimmed = false
     @State private var isHovering = false
+    private let lastURLKey = "lastURL"
+    private let initialSavedURL: URL?
 
     init() {
         let config = WKWebViewConfiguration()
@@ -39,10 +41,17 @@ struct ContentView: View {
 
         config.userContentController.addUserScript(script)
 
+        initialSavedURL = UserDefaults.standard.string(forKey: lastURLKey).flatMap { URL(string: $0) }
+
         let wv = WKWebView(frame: .zero, configuration: config)
         wv.customUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
 
         _webView = State(initialValue: wv)
+
+        if let url = initialSavedURL {
+            wv.load(URLRequest(url: url))
+            statusMessage = ""
+        }
     }
 
     var body: some View {
@@ -83,13 +92,16 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .setAlwaysOnTop)) { notification in
             if let enabled = notification.userInfo?["enabled"] as? Bool {
                 setAlwaysOnTop(to: enabled)
-                settings.alwaysOnTopEnabled = enabled
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .setEightyTransparency)) { notification in
             if let enabled = notification.userInfo?["enabled"] as? Bool {
                 setEightyTransparency(to: enabled)
-                settings.eightyTransparencyEnabled = enabled
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .setHoverTransparency)) { notification in
+            if let enabled = notification.userInfo?["enabled"] as? Bool {
+                setHoverTransparency(to: enabled)
             }
         }
         .onAppear {
@@ -97,6 +109,7 @@ struct ContentView: View {
             // Sync initial state with settings
             setAlwaysOnTop(to: settings.alwaysOnTopEnabled)
             setEightyTransparency(to: settings.eightyTransparencyEnabled)
+            setHoverTransparency(to: settings.hoverTransparencyEnabled)
         }
     }
 
@@ -131,6 +144,7 @@ struct ContentView: View {
                 if let url = URL(string: watchURL) {
                     webView.load(URLRequest(url: url))
                     statusMessage = ""
+                    UserDefaults.standard.set(watchURL, forKey: lastURLKey)
                 }
             }
         } else {
@@ -187,10 +201,12 @@ struct ContentView: View {
                     // Mouse over: make transparent and click-through
                     window.alphaValue = 0.1
                     window.ignoresMouseEvents = true
+                    ensureWindowFront(window) // keep app active so menus remain usable
                 } else {
                     // Mouse away: make opaque and clickable
                     window.alphaValue = 1.0
                     window.ignoresMouseEvents = false
+                    ensureWindowFront(window)
                 }
             }
         }
@@ -200,6 +216,7 @@ struct ContentView: View {
         DispatchQueue.main.async {
             if let window = NSApplication.shared.windows.first {
                 isTransparent.toggle()
+                settings.hoverTransparencyEnabled = isTransparent
                 if isTransparent {
                     // In transparent mode, window responds to hover
                     statusMessage = "Hover mode enabled"
@@ -272,6 +289,7 @@ struct ContentView: View {
             isEightyTransparency = enabled
             isTransparent = false
             isDimmed = false
+            settings.hoverTransparencyEnabled = false
 
             let newOpacity: CGFloat = enabled ? 0.2 : 1.0
             window.alphaValue = newOpacity
@@ -281,6 +299,28 @@ struct ContentView: View {
             statusMessage = enabled ? "Transparency 80% enabled" : "Transparency reset"
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                 if statusMessage == "Transparency 80% enabled" || statusMessage == "Transparency reset" {
+                    statusMessage = ""
+                }
+            }
+        }
+    }
+
+    func setHoverTransparency(to enabled: Bool) {
+        DispatchQueue.main.async {
+            guard let window = NSApplication.shared.windows.first else { return }
+            isTransparent = enabled
+            if enabled {
+                window.alphaValue = isHovering ? 0.1 : 1.0
+                window.ignoresMouseEvents = isHovering
+                statusMessage = "Hover mode enabled"
+            } else {
+                window.alphaValue = 1.0
+                window.ignoresMouseEvents = false
+                statusMessage = "Hover mode disabled"
+            }
+            ensureWindowFront(window)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                if statusMessage == "Hover mode enabled" || statusMessage == "Hover mode disabled" {
                     statusMessage = ""
                 }
             }

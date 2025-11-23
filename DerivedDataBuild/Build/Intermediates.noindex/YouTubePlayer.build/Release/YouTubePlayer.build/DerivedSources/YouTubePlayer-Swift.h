@@ -312,6 +312,7 @@ SWIFT_CLASS("_TtC13YouTubePlayer11AppDelegate")
 - (void)applicationDidFinishLaunching:(NSNotification * _Nonnull)notification;
 - (void)openURL;
 - (void)toggleTransparency;
+- (void)toggleHoverTransparency:(NSMenuItem * _Nonnull)sender;
 - (void)toggleAlwaysOnTop:(NSMenuItem * _Nonnull)sender;
 - (void)toggleEightyTransparency:(NSMenuItem * _Nonnull)sender;
 - (nonnull instancetype)init OBJC_DESIGNATED_INITIALIZER;

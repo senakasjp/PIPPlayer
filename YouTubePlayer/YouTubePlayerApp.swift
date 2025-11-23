@@ -6,13 +6,22 @@ final class AppSettings: ObservableObject {
 
     @Published var alwaysOnTopEnabled: Bool = true {
         didSet {
+            guard oldValue != alwaysOnTopEnabled else { return }
             NotificationCenter.default.post(name: .setAlwaysOnTop, object: nil, userInfo: ["enabled": alwaysOnTopEnabled])
         }
     }
 
     @Published var eightyTransparencyEnabled: Bool = false {
         didSet {
+            guard oldValue != eightyTransparencyEnabled else { return }
             NotificationCenter.default.post(name: .setEightyTransparency, object: nil, userInfo: ["enabled": eightyTransparencyEnabled])
+        }
+    }
+
+    @Published var hoverTransparencyEnabled: Bool = true {
+        didSet {
+            guard oldValue != hoverTransparencyEnabled else { return }
+            NotificationCenter.default.post(name: .setHoverTransparency, object: nil, userInfo: ["enabled": hoverTransparencyEnabled])
         }
     }
 
@@ -32,6 +41,8 @@ struct YouTubePlayerApp: App {
         .commands {
             CommandGroup(replacing: .newItem) {}
             CommandGroup(after: .sidebar) {
+                Toggle("Hover Transparency", isOn: $settings.hoverTransparencyEnabled)
+                    .keyboardShortcut("t", modifiers: .command)
                 Toggle("Always On Top", isOn: $settings.alwaysOnTopEnabled)
                     .keyboardShortcut("l", modifiers: .command)
                 Toggle("80% Transparency", isOn: $settings.eightyTransparencyEnabled)
@@ -57,6 +68,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var observers: [NSObjectProtocol] = []
     private var alwaysOnTopItem: NSMenuItem?
     private var eightyTransparencyItem: NSMenuItem?
+    private var hoverTransparencyItem: NSMenuItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Create menu bar icon
@@ -75,7 +87,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(NSMenuItem(title: "Open URL...", action: #selector(openURL), keyEquivalent: "o"))
         menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "Hover Transparency", action: #selector(toggleTransparency), keyEquivalent: "t"))
+        let hoverTransparency = NSMenuItem(title: "Hover Transparency", action: #selector(toggleHoverTransparency), keyEquivalent: "t")
+        hoverTransparency.state = settings.hoverTransparencyEnabled ? .on : .off
+        menu.addItem(hoverTransparency)
+        hoverTransparencyItem = hoverTransparency
 
         let alwaysOnTop = NSMenuItem(title: "Always On Top", action: #selector(toggleAlwaysOnTop), keyEquivalent: "l")
         alwaysOnTop.state = settings.alwaysOnTopEnabled ? .on : .off
@@ -101,6 +116,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NotificationCenter.default.post(name: .toggleTransparency, object: nil)
     }
 
+    @objc func toggleHoverTransparency(_ sender: NSMenuItem) {
+        settings.hoverTransparencyEnabled.toggle()
+    }
+
     @objc func toggleAlwaysOnTop(_ sender: NSMenuItem) {
         settings.alwaysOnTopEnabled.toggle()
     }
@@ -121,6 +140,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.eightyTransparencyItem?.state = enabled ? .on : .off
             }
         })
+        observers.append(center.addObserver(forName: .setHoverTransparency, object: nil, queue: .main) { [weak self] notification in
+            if let enabled = notification.userInfo?["enabled"] as? Bool {
+                self?.hoverTransparencyItem?.state = enabled ? .on : .off
+            }
+        })
     }
 
     deinit {
@@ -134,4 +158,5 @@ extension Notification.Name {
     static let toggleOpacity = Notification.Name("toggleOpacity")
     static let setAlwaysOnTop = Notification.Name("setAlwaysOnTop")
     static let setEightyTransparency = Notification.Name("setEightyTransparency")
+    static let setHoverTransparency = Notification.Name("setHoverTransparency")
 }
