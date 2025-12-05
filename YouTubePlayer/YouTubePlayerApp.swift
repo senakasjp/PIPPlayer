@@ -3,10 +3,18 @@ import Combine
 
 final class AppSettings: ObservableObject {
     static let shared = AppSettings()
+    private let defaults = UserDefaults.standard
+
+    private enum Keys {
+        static let alwaysOnTop = "settings.alwaysOnTopEnabled"
+        static let eightyTransparency = "settings.eightyTransparencyEnabled"
+        static let hoverTransparency = "settings.hoverTransparencyEnabled"
+    }
 
     @Published var alwaysOnTopEnabled: Bool = true {
         didSet {
             guard oldValue != alwaysOnTopEnabled else { return }
+            defaults.set(alwaysOnTopEnabled, forKey: Keys.alwaysOnTop)
             NotificationCenter.default.post(name: .setAlwaysOnTop, object: nil, userInfo: ["enabled": alwaysOnTopEnabled])
         }
     }
@@ -14,6 +22,7 @@ final class AppSettings: ObservableObject {
     @Published var eightyTransparencyEnabled: Bool = false {
         didSet {
             guard oldValue != eightyTransparencyEnabled else { return }
+            defaults.set(eightyTransparencyEnabled, forKey: Keys.eightyTransparency)
             NotificationCenter.default.post(name: .setEightyTransparency, object: nil, userInfo: ["enabled": eightyTransparencyEnabled])
         }
     }
@@ -21,11 +30,26 @@ final class AppSettings: ObservableObject {
     @Published var hoverTransparencyEnabled: Bool = true {
         didSet {
             guard oldValue != hoverTransparencyEnabled else { return }
+            defaults.set(hoverTransparencyEnabled, forKey: Keys.hoverTransparency)
             NotificationCenter.default.post(name: .setHoverTransparency, object: nil, userInfo: ["enabled": hoverTransparencyEnabled])
         }
     }
 
-    private init() {}
+    private init() {
+        loadPersistedValues()
+    }
+
+    private func loadPersistedValues() {
+        if defaults.object(forKey: Keys.alwaysOnTop) != nil {
+            alwaysOnTopEnabled = defaults.bool(forKey: Keys.alwaysOnTop)
+        }
+        if defaults.object(forKey: Keys.eightyTransparency) != nil {
+            eightyTransparencyEnabled = defaults.bool(forKey: Keys.eightyTransparency)
+        }
+        if defaults.object(forKey: Keys.hoverTransparency) != nil {
+            hoverTransparencyEnabled = defaults.bool(forKey: Keys.hoverTransparency)
+        }
+    }
 }
 
 @main

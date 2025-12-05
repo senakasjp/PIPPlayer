@@ -11,6 +11,7 @@
 		B1000002000000000000001 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000002000000000000001 /* ContentView.swift */; };
 		B1000003000000000000001 /* WebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000003000000000000001 /* WebView.swift */; };
 		B1000004000000000000001 /* URLHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000004000000000000001 /* URLHelper.swift */; };
+		B1000005000000000000001 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B2000006000000000000001 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -20,6 +21,7 @@
 		B2000003000000000000001 /* WebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebView.swift; sourceTree = "<group>"; };
 		B2000004000000000000001 /* URLHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = URLHelper.swift; sourceTree = "<group>"; };
 		B2000005000000000000001 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		B2000006000000000000001 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -44,6 +46,7 @@
 		B5000002000000000000001 /* YouTubePlayer */ = {
 			isa = PBXGroup;
 			children = (
+				B2000006000000000000001 /* Assets.xcassets */,
 				B2000001000000000000001 /* YouTubePlayerApp.swift */,
 				B2000002000000000000001 /* ContentView.swift */,
 				B2000003000000000000001 /* WebView.swift */,
@@ -119,6 +122,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B1000005000000000000001 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

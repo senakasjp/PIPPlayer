@@ -7,7 +7,7 @@
         "key": "Player",
         "location": {
           "startingColumn": 25,
-          "startingLine": 55
+          "startingLine": 79
         }
       },
       {
@@ -15,7 +15,7 @@
         "key": "Hover Transparency",
         "location": {
           "startingColumn": 24,
-          "startingLine": 44
+          "startingLine": 68
         }
       },
       {
@@ -23,7 +23,7 @@
         "key": "Always On Top",
         "location": {
           "startingColumn": 24,
-          "startingLine": 46
+          "startingLine": 70
         }
       },
       {
@@ -31,7 +31,7 @@
         "key": "80% Transparency",
         "location": {
           "startingColumn": 24,
-          "startingLine": 48
+          "startingLine": 72
         }
       },
       {
@@ -39,7 +39,7 @@
         "key": "Toggle Opacity",
         "location": {
           "startingColumn": 24,
-          "startingLine": 50
+          "startingLine": 74
         }
       },
       {
@@ -47,7 +47,7 @@
         "key": "Open URL...",
         "location": {
           "startingColumn": 24,
-          "startingLine": 56
+          "startingLine": 80
         }
       }
     ]

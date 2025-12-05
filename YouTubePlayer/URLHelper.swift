@@ -28,7 +28,13 @@ struct URLHelper {
         return nil
     }
 
-    static func makeWatchURL(videoID: String) -> String {
-        return "https://www.youtube.com/watch?v=\(videoID)"
+    static func makeWatchURL(videoID: String, startTime: Int? = nil) -> String {
+        var components = URLComponents(string: "https://www.youtube.com/watch")
+        var queryItems = [URLQueryItem(name: "v", value: videoID)]
+        if let startTime {
+            queryItems.append(URLQueryItem(name: "t", value: "\(startTime)s"))
+        }
+        components?.queryItems = queryItems
+        return components?.url?.absoluteString ?? "https://www.youtube.com/watch?v=\(videoID)"
     }
 }

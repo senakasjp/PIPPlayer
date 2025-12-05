@@ -281,6 +281,7 @@ typedef unsigned int swift_uint4  __attribute__((__ext_vector_type__(4)));
 #endif
 @import AppKit;
 @import ObjectiveC;
+@import WebKit;
 #endif
 
 #endif
@@ -313,6 +314,14 @@ SWIFT_CLASS("_TtC13YouTubePlayer11AppDelegate")
 - (void)toggleHoverTransparency:(NSMenuItem * _Nonnull)sender;
 - (void)toggleAlwaysOnTop:(NSMenuItem * _Nonnull)sender;
 - (void)toggleEightyTransparency:(NSMenuItem * _Nonnull)sender;
+- (nonnull instancetype)init OBJC_DESIGNATED_INITIALIZER;
+@end
+
+@class WKUserContentController;
+@class WKScriptMessage;
+SWIFT_CLASS("_TtC13YouTubePlayer27YouTubeScriptMessageHandler")
+@interface YouTubeScriptMessageHandler : NSObject <WKScriptMessageHandler>
+- (void)userContentController:(WKUserContentController * _Nonnull)userContentController didReceiveScriptMessage:(WKScriptMessage * _Nonnull)message;
 - (nonnull instancetype)init OBJC_DESIGNATED_INITIALIZER;
 @end
 
