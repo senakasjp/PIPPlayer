@@ -13,7 +13,11 @@ struct ContentView: View {
     @State private var isEightyTransparency = false
     @State private var isDimmed = false
     @State private var isHovering = false
+    @State private var contentOpacity: Double = 1.0
+    @State private var isFillPlayerWindowEnabled = false
+    @State private var hoverMonitorTimer: Timer?
     private let playerWindowIdentifier = NSUserInterfaceItemIdentifier("YouTubePlayerWindow")
+    private let playerWindowFrameKey = "playerWindowFrame"
     private let alwaysOnTopBehaviors: NSWindow.CollectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
     private let lastURLKey = "lastURL"
     private let lastPlaybackPositionsKey = "lastPlaybackPositions"
@@ -21,6 +25,7 @@ struct ContentView: View {
     @State private var playbackPositions: [String: Double]
     @State private var pendingInitialURL: URL?
     @State private var window: NSWindow?
+    private let windowCoordinator = PlayerWindowCoordinator()
 
     init() {
         scriptHandler = YouTubeScriptMessageHandler()
@@ -62,9 +67,22 @@ struct ContentView: View {
                     handler.postMessage({ videoId: videoId, currentTime: video.currentTime || 0 });
                 };
 
+                window.nativePostPlaybackProgress = postProgress;
+
                 const install = () => {
                     postProgress();
                     setInterval(postProgress, 1000);
+                    const video = document.querySelector('video');
+                    if (video) {
+                        ['pause', 'seeking', 'seeked', 'ended'].forEach((eventName) => {
+                            video.addEventListener(eventName, postProgress);
+                        });
+                    }
+                    document.addEventListener('visibilitychange', postProgress);
+                    window.addEventListener('pagehide', postProgress);
+                    window.addEventListener('beforeunload', postProgress);
+                    window.addEventListener('yt-navigate-start', postProgress);
+                    window.addEventListener('yt-navigate-finish', postProgress);
                 };
 
                 if (document.readyState === 'complete' || document.readyState === 'interactive') {
@@ -78,8 +96,199 @@ struct ContentView: View {
             forMainFrameOnly: true
         )
 
+        let fillPlayerWindowScript = WKUserScript(
+            source: """
+            (function() {
+                const storageKey = 'nativeFillPlayerWindow';
+                const transparentPlayerStorageKey = 'nativeTransparentPlayerChrome';
+                const styleId = 'native-fill-player-window-style';
+                const transparentStyleId = 'native-transparent-player-style';
+                const className = 'native-fill-player-window';
+                const transparentClassName = 'native-transparent-player';
+                const css = `
+                html.${className}, body.${className} {
+                    overflow: hidden !important;
+                    background: #000 !important;
+                    --ytd-masthead-height: 0px !important;
+                    --ytd-toolbar-height: 0px !important;
+                }
+                html.${className} ytd-masthead,
+                body.${className} ytd-masthead,
+                html.${className} #masthead-container,
+                body.${className} #masthead-container,
+                html.${className} tp-yt-app-header-layout,
+                body.${className} tp-yt-app-header-layout {
+                    display: none !important;
+                }
+                html.${className} #secondary,
+                body.${className} #secondary,
+                html.${className} #below,
+                body.${className} #below,
+                html.${className} #related,
+                body.${className} #related,
+                html.${className} #comments,
+                body.${className} #comments,
+                html.${className} ytd-comments,
+                body.${className} ytd-comments,
+                html.${className} #chat,
+                body.${className} #chat {
+                    display: none !important;
+                }
+                html.${className} ytd-app,
+                body.${className} ytd-app,
+                html.${className} #page-manager,
+                body.${className} #page-manager,
+                html.${className} ytd-watch-flexy,
+                body.${className} ytd-watch-flexy,
+                html.${className} #primary,
+                body.${className} #primary,
+                html.${className} #primary-inner,
+                body.${className} #primary-inner,
+                html.${className} #columns,
+                body.${className} #columns,
+                html.${className} #contents,
+                body.${className} #contents {
+                    margin-top: 0 !important;
+                    padding-top: 0 !important;
+                    top: 0 !important;
+                }
+                html.${className} ytd-watch-flexy,
+                body.${className} ytd-watch-flexy {
+                    min-width: 100vw !important;
+                    min-height: 100vh !important;
+                    background: #000 !important;
+                }
+                html.${className} #player-theater-container,
+                body.${className} #player-theater-container,
+                html.${className} #full-bleed-container,
+                body.${className} #full-bleed-container,
+                html.${className} #player,
+                body.${className} #player,
+                html.${className} ytd-player,
+                body.${className} ytd-player,
+                html.${className} #movie_player,
+                body.${className} #movie_player,
+                html.${className} .html5-video-container,
+                body.${className} .html5-video-container,
+                html.${className} video,
+                body.${className} video {
+                    width: 100% !important;
+                    height: 100% !important;
+                    max-width: none !important;
+                    max-height: none !important;
+                }
+                html.${className} #player-theater-container,
+                body.${className} #player-theater-container,
+                html.${className} #full-bleed-container,
+                body.${className} #full-bleed-container,
+                html.${className} #player,
+                body.${className} #player,
+                html.${className} ytd-player,
+                body.${className} ytd-player,
+                html.${className} #movie_player,
+                body.${className} #movie_player {
+                    position: relative !important;
+                    inset: auto !important;
+                    margin: 0 !important;
+                    padding: 0 !important;
+                    background: #000 !important;
+                }
+                `;
+                const transparentCss = `
+                html.${transparentClassName}, body.${transparentClassName},
+                html.${transparentClassName} ytd-app, body.${transparentClassName} ytd-app,
+                html.${transparentClassName} #page-manager, body.${transparentClassName} #page-manager,
+                html.${transparentClassName} ytd-watch-flexy, body.${transparentClassName} ytd-watch-flexy,
+                html.${transparentClassName} #player, body.${transparentClassName} #player,
+                html.${transparentClassName} ytd-player, body.${transparentClassName} ytd-player,
+                html.${transparentClassName} #movie_player, body.${transparentClassName} #movie_player,
+                html.${transparentClassName} .html5-video-player, body.${transparentClassName} .html5-video-player,
+                html.${transparentClassName} .html5-video-container, body.${transparentClassName} .html5-video-container,
+                html.${transparentClassName} .ytp-gradient-top, body.${transparentClassName} .ytp-gradient-top,
+                html.${transparentClassName} .ytp-gradient-bottom, body.${transparentClassName} .ytp-gradient-bottom {
+                    background: transparent !important;
+                    box-shadow: none !important;
+                }
+                `;
+
+                function ensureStyle() {
+                    if (document.getElementById(styleId)) { return; }
+                    const style = document.createElement('style');
+                    style.id = styleId;
+                    style.textContent = css;
+                    (document.head || document.documentElement).appendChild(style);
+                }
+
+                function ensureTransparentStyle() {
+                    if (document.getElementById(transparentStyleId)) { return; }
+                    const style = document.createElement('style');
+                    style.id = transparentStyleId;
+                    style.textContent = transparentCss;
+                    (document.head || document.documentElement).appendChild(style);
+                }
+
+                function applyMode(enabled) {
+                    ensureStyle();
+                    const root = document.documentElement;
+                    const body = document.body;
+                    if (!root) { return; }
+                    root.classList.toggle(className, enabled);
+                    if (body) { body.classList.toggle(className, enabled); }
+                    if (enabled) {
+                        const moviePlayer = document.getElementById('movie_player');
+                        if (moviePlayer && typeof moviePlayer.toggleTheaterMode === 'function') {
+                            try {
+                                const isTheater = moviePlayer.classList.contains('ytp-size-button-large');
+                                if (!isTheater) { moviePlayer.toggleTheaterMode(); }
+                            } catch (e) {}
+                        }
+                        if (moviePlayer && typeof moviePlayer.setSize === 'function') {
+                            moviePlayer.setSize(window.innerWidth, window.innerHeight);
+                        }
+                    }
+                }
+
+                function applyTransparentPlayerMode(enabled) {
+                    ensureTransparentStyle();
+                    const root = document.documentElement;
+                    const body = document.body;
+                    if (!root) { return; }
+                    root.classList.toggle(transparentClassName, enabled);
+                    if (body) { body.classList.toggle(transparentClassName, enabled); }
+                }
+
+                function syncFromStorage() {
+                    applyMode(localStorage.getItem(storageKey) === '1');
+                    applyTransparentPlayerMode(localStorage.getItem(transparentPlayerStorageKey) === '1');
+                }
+
+                window.setNativeFillPlayerWindow = function(enabled) {
+                    localStorage.setItem(storageKey, enabled ? '1' : '0');
+                    applyMode(enabled);
+                    window.setTimeout(syncFromStorage, 150);
+                    window.setTimeout(syncFromStorage, 600);
+                    window.setTimeout(syncFromStorage, 1200);
+                };
+
+                window.setNativeTransparentPlayerMode = function(enabled) {
+                    localStorage.setItem(transparentPlayerStorageKey, enabled ? '1' : '0');
+                    applyTransparentPlayerMode(enabled);
+                    window.setTimeout(syncFromStorage, 150);
+                };
+
+                syncFromStorage();
+                document.addEventListener('DOMContentLoaded', syncFromStorage, { once: false });
+                window.addEventListener('resize', syncFromStorage);
+                window.addEventListener('yt-navigate-finish', syncFromStorage);
+            })();
+            """,
+            injectionTime: .atDocumentEnd,
+            forMainFrameOnly: true
+        )
+
         config.userContentController.addUserScript(script)
         config.userContentController.addUserScript(progressTrackingScript)
+        config.userContentController.addUserScript(fillPlayerWindowScript)
         config.userContentController.add(scriptHandler, name: "videoProgress")
 
         initialSavedURL = UserDefaults.standard.string(forKey: lastURLKey).flatMap { URL(string: $0) }
@@ -89,6 +298,15 @@ struct ContentView: View {
 
         let wv = WKWebView(frame: .zero, configuration: config)
         wv.customUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
+        wv.setValue(false, forKey: "drawsBackground")
+        scriptHandler.onPageReady = { [weak wv] in
+            DispatchQueue.main.async {
+                guard let wv else { return }
+                let enabled = UserDefaults.standard.bool(forKey: "settings.fillPlayerWindowEnabled")
+                wv.evaluateJavaScript("window.setNativeFillPlayerWindow && window.setNativeFillPlayerWindow(\(enabled ? "true" : "false"));")
+            }
+        }
+        wv.navigationDelegate = scriptHandler
 
         _webView = State(initialValue: wv)
 
@@ -99,10 +317,12 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
-            Color.black.edgesIgnoringSafeArea(.all)
+            Color.clear
+                .edgesIgnoringSafeArea(.all)
 
             WebView(webView: webView)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .opacity(contentOpacity)
 
             if statusMessage != "" {
                 VStack {
@@ -147,14 +367,27 @@ struct ContentView: View {
                 setHoverTransparency(to: enabled)
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .setFillPlayerWindow)) { notification in
+            if let enabled = notification.userInfo?["enabled"] as? Bool {
+                setFillPlayerWindow(to: enabled)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .setLockAspectRatio16x9)) { notification in
+            if let enabled = notification.userInfo?["enabled"] as? Bool {
+                setLockAspectRatio16x9(to: enabled)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
+            persistCurrentPlaybackPosition()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { notification in
+            guard let closingWindow = notification.object as? NSWindow, closingWindow == getWindow() else { return }
+            persistCurrentPlaybackPosition()
+        }
         .onAppear {
             // Set up the progress callback
             scriptHandler.onProgress = { videoId, time in
-                DispatchQueue.main.async {
-                    var positions = UserDefaults.standard.dictionary(forKey: lastPlaybackPositionsKey) as? [String: Double] ?? [:]
-                    positions[videoId] = time
-                    UserDefaults.standard.set(positions, forKey: lastPlaybackPositionsKey)
-                }
+                updatePlaybackPosition(videoID: videoId, time: time)
             }
 
             scheduleWindowSetup()
@@ -162,10 +395,16 @@ struct ContentView: View {
             applyAlwaysOnTopWhenReady()
             setEightyTransparency(to: settings.eightyTransparencyEnabled)
             setHoverTransparency(to: settings.hoverTransparencyEnabled)
+            setFillPlayerWindow(to: settings.fillPlayerWindowEnabled)
+            setLockAspectRatio16x9(to: settings.lockAspectRatio16x9Enabled)
             if let url = pendingInitialURL {
                 pendingInitialURL = nil
                 loadYouTubeURL(url.absoluteString, rememberAsLast: false)
             }
+        }
+        .onDisappear {
+            hoverMonitorTimer?.invalidate()
+            hoverMonitorTimer = nil
         }
     }
 
@@ -246,6 +485,7 @@ struct ContentView: View {
 
         // Start opaque and clickable
         window.alphaValue = 1.0
+        contentOpacity = 1.0
         window.ignoresMouseEvents = false
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -268,16 +508,50 @@ struct ContentView: View {
         DispatchQueue.main.async {
             guard let window = getWindow() else { return }
             if hovering {
-                // Mouse over: make transparent and click-through
-                window.alphaValue = 0.1
+                // Mouse over: hide content completely and pass clicks through
+                contentOpacity = 0.0
                 window.ignoresMouseEvents = true
+                applyTransparentWindowAppearance(window, isFullyTransparent: true)
                 ensureWindowFront(window) // keep app active so menus remain usable
             } else {
-                // Mouse away: make opaque and clickable
-                window.alphaValue = 1.0
+                // Mouse away: make content opaque and clickable
+                contentOpacity = 1.0
                 window.ignoresMouseEvents = false
+                applyTransparentWindowAppearance(window, isFullyTransparent: false)
                 ensureWindowFront(window)
             }
+            applyTransparentSurfaceMode()
+        }
+    }
+
+    private func startHoverMonitor(for window: NSWindow) {
+        hoverMonitorTimer?.invalidate()
+        hoverMonitorTimer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: true) { _ in
+            DispatchQueue.main.async {
+                updateHoverStateFromMouseLocation(window: window)
+            }
+        }
+        if let hoverMonitorTimer {
+            RunLoop.main.add(hoverMonitorTimer, forMode: .common)
+        }
+    }
+
+    private func stopHoverMonitor() {
+        hoverMonitorTimer?.invalidate()
+        hoverMonitorTimer = nil
+    }
+
+    private func updateHoverStateFromMouseLocation(window: NSWindow) {
+        guard isTransparent else { return }
+        let mouseLocation = NSEvent.mouseLocation
+        let contentRectInScreen = window.convertToScreen(window.contentLayoutRect)
+        let hoveringNow = contentRectInScreen.contains(mouseLocation)
+        if hoveringNow != isHovering {
+            isHovering = hoveringNow
+            handleHoverChange(hoveringNow)
+        } else if !hoveringNow, window.ignoresMouseEvents {
+            contentOpacity = 1.0
+            window.ignoresMouseEvents = false
         }
     }
 
@@ -290,12 +564,12 @@ struct ContentView: View {
                 // In transparent mode, window responds to hover
                 statusMessage = "Hover mode enabled"
                 // Reset to opaque until hover
-                window.alphaValue = 1.0
+                contentOpacity = 1.0
                 window.ignoresMouseEvents = false
                 ensureWindowFront(window)
             } else {
                 // Always opaque and clickable
-                window.alphaValue = 1.0
+                contentOpacity = 1.0
                 window.ignoresMouseEvents = false
                 ensureWindowFront(window)
                 statusMessage = "Hover mode disabled"
@@ -331,9 +605,11 @@ struct ContentView: View {
             isTransparent = false
 
             // Dim to 25% or restore to fully opaque; keep clicks enabled
-            let newOpacity: CGFloat = isDimmed ? 0.25 : 1.0
-            window.alphaValue = newOpacity
+            let newOpacity: Double = isDimmed ? 0.25 : 1.0
+            contentOpacity = newOpacity
             window.ignoresMouseEvents = false
+            applyTransparentWindowAppearance(window, isFullyTransparent: newOpacity == 0)
+            applyTransparentSurfaceMode()
 
             statusMessage = isDimmed ? "Opacity 25%" : "Opacity 100%"
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
@@ -352,9 +628,11 @@ struct ContentView: View {
             isDimmed = false
             settings.hoverTransparencyEnabled = false
 
-            let newOpacity: CGFloat = enabled ? 0.2 : 1.0
-            window.alphaValue = newOpacity
+            let newOpacity: Double = enabled ? 0.2 : 1.0
+            contentOpacity = newOpacity
             window.ignoresMouseEvents = false
+            applyTransparentWindowAppearance(window, isFullyTransparent: newOpacity == 0)
+            applyTransparentSurfaceMode()
             ensureWindowFront(window)
 
             statusMessage = enabled ? "Transparency 80% enabled" : "Transparency reset"
@@ -371,17 +649,54 @@ struct ContentView: View {
             guard let window = getWindow() else { return }
             isTransparent = enabled
             if enabled {
-                window.alphaValue = isHovering ? 0.1 : 1.0
+                startHoverMonitor(for: window)
+                updateHoverStateFromMouseLocation(window: window)
+                contentOpacity = isHovering ? 0.0 : 1.0
                 window.ignoresMouseEvents = isHovering
+                applyTransparentWindowAppearance(window, isFullyTransparent: isHovering)
                 statusMessage = "Hover mode enabled"
             } else {
-                window.alphaValue = 1.0
+                stopHoverMonitor()
+                isHovering = false
+                contentOpacity = 1.0
                 window.ignoresMouseEvents = false
+                applyTransparentWindowAppearance(window, isFullyTransparent: false)
                 statusMessage = "Hover mode disabled"
             }
+            applyTransparentSurfaceMode()
             ensureWindowFront(window)
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                 if statusMessage == "Hover mode enabled" || statusMessage == "Hover mode disabled" {
+                    statusMessage = ""
+                }
+            }
+        }
+    }
+
+    func setFillPlayerWindow(to enabled: Bool) {
+        isFillPlayerWindowEnabled = enabled
+        DispatchQueue.main.async {
+            let script = "window.setNativeFillPlayerWindow && window.setNativeFillPlayerWindow(\(enabled ? "true" : "false"));"
+            webView.evaluateJavaScript(script)
+            statusMessage = enabled ? "Fill player window enabled" : "Fill player window disabled"
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                if statusMessage == "Fill player window enabled" || statusMessage == "Fill player window disabled" {
+                    statusMessage = ""
+                }
+            }
+        }
+    }
+
+    func setLockAspectRatio16x9(to enabled: Bool) {
+        DispatchQueue.main.async {
+            guard let window = getWindow() else { return }
+            windowCoordinator.lockAspectRatio16x9 = enabled
+            if enabled {
+                windowCoordinator.applyLockedAspectRatio(to: window)
+            }
+            statusMessage = enabled ? "16:9 resize lock enabled" : "16:9 resize lock disabled"
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                if statusMessage == "16:9 resize lock enabled" || statusMessage == "16:9 resize lock disabled" {
                     statusMessage = ""
                 }
             }
@@ -399,7 +714,28 @@ struct ContentView: View {
         DispatchQueue.main.async {
             playbackPositions[videoID] = time
             UserDefaults.standard.set(playbackPositions, forKey: lastPlaybackPositionsKey)
+            let lastWatchURL = URLHelper.makeWatchURL(videoID: videoID, startTime: Optional<Int>.none)
+            UserDefaults.standard.set(lastWatchURL, forKey: lastURLKey)
         }
+    }
+
+    private func persistCurrentPlaybackPosition() {
+        let script = "window.nativePostPlaybackProgress && window.nativePostPlaybackProgress();"
+        DispatchQueue.main.async {
+            webView.evaluateJavaScript(script)
+        }
+    }
+
+    private func applyTransparentSurfaceMode() {
+        let enabled = contentOpacity < 1.0
+        let script = "window.setNativeTransparentPlayerMode && window.setNativeTransparentPlayerMode(\(enabled ? "true" : "false"));"
+        DispatchQueue.main.async {
+            webView.evaluateJavaScript(script)
+        }
+    }
+
+    private func applyTransparentWindowAppearance(_ window: NSWindow, isFullyTransparent: Bool) {
+        window.hasShadow = !isFullyTransparent
     }
 
     private func getWindow() -> NSWindow? {
@@ -427,11 +763,35 @@ struct ContentView: View {
         window.identifier = playerWindowIdentifier
 
         if needsBaseSetup {
-            window.titlebarAppearsTransparent = true
+            window.titlebarAppearsTransparent = false
             window.styleMask.insert(.fullSizeContentView)
             window.isOpaque = false
-            window.backgroundColor = .black
+            window.backgroundColor = .clear
+            window.isMovableByWindowBackground = true
+            window.delegate = windowCoordinator
+            restoreWindowFrameIfNeeded(window)
+            startPersistingWindowFrame(window)
+
+            // Set collection behavior once during initial setup
+            // This makes the window appear on all spaces and move with active space
+            window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         }
+
+        windowCoordinator.lockAspectRatio16x9 = settings.lockAspectRatio16x9Enabled
+    }
+
+    private func restoreWindowFrameIfNeeded(_ window: NSWindow) {
+        guard let frameString = UserDefaults.standard.string(forKey: playerWindowFrameKey) else { return }
+        let frame = NSRectFromString(frameString)
+        guard frame.width > 0, frame.height > 0 else { return }
+        window.setFrame(frame, display: false)
+    }
+
+    private func startPersistingWindowFrame(_ window: NSWindow) {
+        windowCoordinator.onFrameChanged = { frame in
+            UserDefaults.standard.set(NSStringFromRect(frame), forKey: playerWindowFrameKey)
+        }
+        windowCoordinator.persistFrame(window.frame)
     }
 
     private func applyAlwaysOnTopState(_ window: NSWindow) {
@@ -492,8 +852,9 @@ struct ContentView: View {
     }
 }
 
-final class YouTubeScriptMessageHandler: NSObject, WKScriptMessageHandler {
+final class YouTubeScriptMessageHandler: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     var onProgress: ((String, Double) -> Void)?
+    var onPageReady: (() -> Void)?
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard message.name == "videoProgress",
@@ -501,5 +862,57 @@ final class YouTubeScriptMessageHandler: NSObject, WKScriptMessageHandler {
               let videoId = body["videoId"] as? String,
               let currentTime = body["currentTime"] as? Double else { return }
         onProgress?(videoId, currentTime)
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        onPageReady?()
+    }
+}
+
+final class PlayerWindowCoordinator: NSObject, NSWindowDelegate {
+    var lockAspectRatio16x9 = false
+    var onFrameChanged: ((NSRect) -> Void)?
+    private var isAdjustingFrame = false
+
+    func windowDidResize(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow else { return }
+        if lockAspectRatio16x9 {
+            applyLockedAspectRatio(to: window)
+        }
+        persistFrame(window.frame)
+    }
+
+    func windowDidMove(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow else { return }
+        persistFrame(window.frame)
+    }
+
+    func persistFrame(_ frame: NSRect) {
+        onFrameChanged?(frame)
+    }
+
+    func applyLockedAspectRatio(to window: NSWindow) {
+        guard lockAspectRatio16x9, !isAdjustingFrame else { return }
+
+        let contentRect = window.contentRect(forFrameRect: window.frame)
+        guard contentRect.width > 0 else { return }
+
+        let targetContentHeight = round(contentRect.width * 9.0 / 16.0)
+        guard abs(contentRect.height - targetContentHeight) > 1 else { return }
+
+        let adjustedContentRect = NSRect(
+            origin: contentRect.origin,
+            size: NSSize(width: contentRect.width, height: targetContentHeight)
+        )
+        let adjustedFrameSize = window.frameRect(forContentRect: adjustedContentRect).size
+        var adjustedFrame = window.frame
+        adjustedFrame.origin.y += adjustedFrame.height - adjustedFrameSize.height
+        adjustedFrame.size = adjustedFrameSize
+
+        isAdjustingFrame = true
+        DispatchQueue.main.async {
+            window.setFrame(adjustedFrame, display: true)
+            self.isAdjustingFrame = false
+        }
     }
 }

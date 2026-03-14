@@ -9,6 +9,8 @@ final class AppSettings: ObservableObject {
         static let alwaysOnTop = "settings.alwaysOnTopEnabled"
         static let eightyTransparency = "settings.eightyTransparencyEnabled"
         static let hoverTransparency = "settings.hoverTransparencyEnabled"
+        static let fillPlayerWindow = "settings.fillPlayerWindowEnabled"
+        static let lockAspectRatio16x9 = "settings.lockAspectRatio16x9Enabled"
     }
 
     @Published var alwaysOnTopEnabled: Bool = true {
@@ -35,6 +37,22 @@ final class AppSettings: ObservableObject {
         }
     }
 
+    @Published var fillPlayerWindowEnabled: Bool = false {
+        didSet {
+            guard oldValue != fillPlayerWindowEnabled else { return }
+            defaults.set(fillPlayerWindowEnabled, forKey: Keys.fillPlayerWindow)
+            NotificationCenter.default.post(name: .setFillPlayerWindow, object: nil, userInfo: ["enabled": fillPlayerWindowEnabled])
+        }
+    }
+
+    @Published var lockAspectRatio16x9Enabled: Bool = false {
+        didSet {
+            guard oldValue != lockAspectRatio16x9Enabled else { return }
+            defaults.set(lockAspectRatio16x9Enabled, forKey: Keys.lockAspectRatio16x9)
+            NotificationCenter.default.post(name: .setLockAspectRatio16x9, object: nil, userInfo: ["enabled": lockAspectRatio16x9Enabled])
+        }
+    }
+
     private init() {
         loadPersistedValues()
     }
@@ -49,6 +67,12 @@ final class AppSettings: ObservableObject {
         if defaults.object(forKey: Keys.hoverTransparency) != nil {
             hoverTransparencyEnabled = defaults.bool(forKey: Keys.hoverTransparency)
         }
+        if defaults.object(forKey: Keys.fillPlayerWindow) != nil {
+            fillPlayerWindowEnabled = defaults.bool(forKey: Keys.fillPlayerWindow)
+        }
+        if defaults.object(forKey: Keys.lockAspectRatio16x9) != nil {
+            lockAspectRatio16x9Enabled = defaults.bool(forKey: Keys.lockAspectRatio16x9)
+        }
     }
 }
 
@@ -58,7 +82,7 @@ struct YouTubePlayerApp: App {
     @StateObject private var settings = AppSettings.shared
 
     var body: some Scene {
-        WindowGroup {
+        Window("YouTube Player", id: "main-player") {
             ContentView()
                 .environmentObject(settings)
         }
@@ -81,6 +105,9 @@ struct YouTubePlayerApp: App {
                     NotificationCenter.default.post(name: .openURL, object: nil)
                 }
                 .keyboardShortcut("o", modifiers: .command)
+                Toggle("Fill Player Window", isOn: $settings.fillPlayerWindowEnabled)
+                    .keyboardShortcut("f", modifiers: [.command, .shift])
+                Toggle("Lock 16:9 While Resizing", isOn: $settings.lockAspectRatio16x9Enabled)
             }
         }
     }
@@ -93,17 +120,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var alwaysOnTopItem: NSMenuItem?
     private var eightyTransparencyItem: NSMenuItem?
     private var hoverTransparencyItem: NSMenuItem?
+    private var fillPlayerWindowItem: NSMenuItem?
+    private var lockAspectRatio16x9Item: NSMenuItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Create menu bar icon
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
 
         if let button = statusItem?.button {
-            button.image = NSImage(systemSymbolName: "play.rectangle.fill", accessibilityDescription: "YouTube Player")
+            let icon = NSImage(systemSymbolName: "play.rectangle.fill", accessibilityDescription: "YouTube Player")
+            icon?.size = NSSize(width: 14, height: 14)
+            button.image = icon
+            button.imageScaling = .scaleProportionallyDown
         }
 
         setupMenu()
         installObservers()
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        true
     }
 
     func setupMenu() {
@@ -125,6 +161,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         eightyTransparency.state = settings.eightyTransparencyEnabled ? .on : .off
         menu.addItem(eightyTransparency)
         eightyTransparencyItem = eightyTransparency
+
+        let fillPlayerWindow = NSMenuItem(title: "Fill Player Window", action: #selector(toggleFillPlayerWindow), keyEquivalent: "f")
+        fillPlayerWindow.keyEquivalentModifierMask = [.command, .shift]
+        fillPlayerWindow.state = settings.fillPlayerWindowEnabled ? .on : .off
+        menu.addItem(fillPlayerWindow)
+        fillPlayerWindowItem = fillPlayerWindow
+
+        let lockAspectRatio16x9 = NSMenuItem(title: "Lock 16:9 While Resizing", action: #selector(toggleLockAspectRatio16x9), keyEquivalent: "")
+        lockAspectRatio16x9.state = settings.lockAspectRatio16x9Enabled ? .on : .off
+        menu.addItem(lockAspectRatio16x9)
+        lockAspectRatio16x9Item = lockAspectRatio16x9
 
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
@@ -152,6 +199,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         settings.eightyTransparencyEnabled.toggle()
     }
 
+    @objc func toggleFillPlayerWindow(_ sender: NSMenuItem) {
+        settings.fillPlayerWindowEnabled.toggle()
+    }
+
+    @objc func toggleLockAspectRatio16x9(_ sender: NSMenuItem) {
+        settings.lockAspectRatio16x9Enabled.toggle()
+    }
+
     private func installObservers() {
         let center = NotificationCenter.default
         observers.append(center.addObserver(forName: .setAlwaysOnTop, object: nil, queue: .main) { [weak self] notification in
@@ -169,6 +224,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.hoverTransparencyItem?.state = enabled ? .on : .off
             }
         })
+        observers.append(center.addObserver(forName: .setFillPlayerWindow, object: nil, queue: .main) { [weak self] notification in
+            if let enabled = notification.userInfo?["enabled"] as? Bool {
+                self?.fillPlayerWindowItem?.state = enabled ? .on : .off
+            }
+        })
+        observers.append(center.addObserver(forName: .setLockAspectRatio16x9, object: nil, queue: .main) { [weak self] notification in
+            if let enabled = notification.userInfo?["enabled"] as? Bool {
+                self?.lockAspectRatio16x9Item?.state = enabled ? .on : .off
+            }
+        })
     }
 
     deinit {
@@ -183,4 +248,6 @@ extension Notification.Name {
     static let setAlwaysOnTop = Notification.Name("setAlwaysOnTop")
     static let setEightyTransparency = Notification.Name("setEightyTransparency")
     static let setHoverTransparency = Notification.Name("setHoverTransparency")
+    static let setFillPlayerWindow = Notification.Name("setFillPlayerWindow")
+    static let setLockAspectRatio16x9 = Notification.Name("setLockAspectRatio16x9")
 }
