@@ -64,7 +64,9 @@ struct ContentView: View {
                     const params = new URLSearchParams(window.location.search);
                     const videoId = params.get('v') || '';
                     if (!videoId) { return; }
-                    handler.postMessage({ videoId: videoId, currentTime: video.currentTime || 0 });
+                    const titleNode = document.querySelector('ytd-watch-metadata h1 yt-formatted-string');
+                    const title = (titleNode && titleNode.textContent ? titleNode.textContent : document.title || '').trim();
+                    handler.postMessage({ videoId: videoId, currentTime: video.currentTime || 0, title: title });
                 };
 
                 window.nativePostPlaybackProgress = postProgress;
@@ -324,6 +326,30 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .opacity(contentOpacity)
 
+            VStack {
+                HStack {
+                    if isFillPlayerWindowEnabled {
+                        Button {
+                            setFillPlayerWindow(to: false)
+                            AppSettings.shared.fillPlayerWindowEnabled = false
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundColor(.white.opacity(0.9))
+                                .padding(6)
+                                .background(Color.black.opacity(0.45))
+                                .clipShape(Circle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    Spacer()
+                }
+                Spacer()
+            }
+            .padding(.top, 10)
+            .padding(.leading, 10)
+
             if statusMessage != "" {
                 VStack {
                     Spacer()
@@ -377,6 +403,11 @@ struct ContentView: View {
                 setLockAspectRatio16x9(to: enabled)
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .openRecentVideo)) { notification in
+            guard let videoID = notification.userInfo?["videoID"] as? String else { return }
+            let time = notification.userInfo?["time"] as? Double ?? 0
+            playRecentVideo(videoID: videoID, startTime: time)
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
             persistCurrentPlaybackPosition()
         }
@@ -386,8 +417,8 @@ struct ContentView: View {
         }
         .onAppear {
             // Set up the progress callback
-            scriptHandler.onProgress = { videoId, time in
-                updatePlaybackPosition(videoID: videoId, time: time)
+            scriptHandler.onProgress = { videoId, time, title in
+                updatePlaybackPosition(videoID: videoId, time: time, title: title)
             }
 
             scheduleWindowSetup()
@@ -469,6 +500,18 @@ struct ContentView: View {
         if alert.runModal() == .alertFirstButtonReturn {
             let urlString = textField.stringValue
             loadYouTubeURL(urlString)
+        }
+    }
+
+    func playRecentVideo(videoID: String, startTime: Double) {
+        let start = max(0, Int(startTime.rounded()))
+        let watchURL = URLHelper.makeWatchURL(videoID: videoID, startTime: start > 0 ? start : nil)
+        DispatchQueue.main.async {
+            if let url = URL(string: watchURL) {
+                webView.load(URLRequest(url: url))
+                statusMessage = ""
+                UserDefaults.standard.set(watchURL, forKey: lastURLKey)
+            }
         }
     }
 
@@ -710,12 +753,13 @@ struct ContentView: View {
         self.window = window
     }
 
-    private func updatePlaybackPosition(videoID: String, time: Double) {
+    private func updatePlaybackPosition(videoID: String, time: Double, title: String?) {
         DispatchQueue.main.async {
             playbackPositions[videoID] = time
             UserDefaults.standard.set(playbackPositions, forKey: lastPlaybackPositionsKey)
             let lastWatchURL = URLHelper.makeWatchURL(videoID: videoID, startTime: Optional<Int>.none)
             UserDefaults.standard.set(lastWatchURL, forKey: lastURLKey)
+            AppSettings.shared.recordRecentVideo(videoID: videoID, title: title, position: time)
         }
     }
 
@@ -764,10 +808,12 @@ struct ContentView: View {
 
         if needsBaseSetup {
             window.titlebarAppearsTransparent = false
-            window.styleMask.insert(.fullSizeContentView)
+            window.titleVisibility = .hidden
+            window.toolbarStyle = .unifiedCompact
+            window.styleMask.remove(.fullSizeContentView)
             window.isOpaque = false
             window.backgroundColor = .clear
-            window.isMovableByWindowBackground = true
+            window.isMovableByWindowBackground = false
             window.delegate = windowCoordinator
             restoreWindowFrameIfNeeded(window)
             startPersistingWindowFrame(window)
@@ -853,7 +899,7 @@ struct ContentView: View {
 }
 
 final class YouTubeScriptMessageHandler: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
-    var onProgress: ((String, Double) -> Void)?
+    var onProgress: ((String, Double, String?) -> Void)?
     var onPageReady: (() -> Void)?
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
@@ -861,7 +907,8 @@ final class YouTubeScriptMessageHandler: NSObject, WKScriptMessageHandler, WKNav
               let body = message.body as? [String: Any],
               let videoId = body["videoId"] as? String,
               let currentTime = body["currentTime"] as? Double else { return }
-        onProgress?(videoId, currentTime)
+        let title = body["title"] as? String
+        onProgress?(videoId, currentTime, title)
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
