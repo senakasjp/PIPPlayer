@@ -7,19 +7,23 @@ struct RecentVideoItem: Codable, Identifiable, Hashable {
     var lastPosition: Double
     var lastPlayedAt: Date
     var watchLaterStars: Int
+    var isThumbsDown: Bool
+    var watchNote: String
 
     var id: String { videoID }
 
-    init(videoID: String, title: String, lastPosition: Double, lastPlayedAt: Date, watchLaterStars: Int = 0) {
+    init(videoID: String, title: String, lastPosition: Double, lastPlayedAt: Date, watchLaterStars: Int = 0, isThumbsDown: Bool = false, watchNote: String = "") {
         self.videoID = videoID
         self.title = title
         self.lastPosition = lastPosition
         self.lastPlayedAt = lastPlayedAt
         self.watchLaterStars = min(5, max(0, watchLaterStars))
+        self.isThumbsDown = isThumbsDown
+        self.watchNote = watchNote
     }
 
     private enum CodingKeys: String, CodingKey {
-        case videoID, title, lastPosition, lastPlayedAt, watchLaterStars
+        case videoID, title, lastPosition, lastPlayedAt, watchLaterStars, isThumbsDown, watchNote
     }
 
     init(from decoder: Decoder) throws {
@@ -29,6 +33,8 @@ struct RecentVideoItem: Codable, Identifiable, Hashable {
         lastPosition = try container.decode(Double.self, forKey: .lastPosition)
         lastPlayedAt = try container.decode(Date.self, forKey: .lastPlayedAt)
         watchLaterStars = min(5, max(0, try container.decodeIfPresent(Int.self, forKey: .watchLaterStars) ?? 0))
+        isThumbsDown = try container.decodeIfPresent(Bool.self, forKey: .isThumbsDown) ?? false
+        watchNote = try container.decodeIfPresent(String.self, forKey: .watchNote) ?? ""
     }
 
     func encode(to encoder: Encoder) throws {
@@ -38,6 +44,8 @@ struct RecentVideoItem: Codable, Identifiable, Hashable {
         try container.encode(lastPosition, forKey: .lastPosition)
         try container.encode(lastPlayedAt, forKey: .lastPlayedAt)
         try container.encode(min(5, max(0, watchLaterStars)), forKey: .watchLaterStars)
+        try container.encode(isThumbsDown, forKey: .isThumbsDown)
+        try container.encode(watchNote, forKey: .watchNote)
     }
 }
 
@@ -135,11 +143,11 @@ final class AppSettings: ObservableObject {
         }
         if let data = defaults.data(forKey: Keys.recentVideos),
            let decoded = try? JSONDecoder().decode([RecentVideoItem].self, from: data) {
-            recentVideos = decoded
+            recentVideos = normalizedVideos(decoded, maxCount: maxRecentVideos)
         }
         if let data = defaults.data(forKey: Keys.watchHistoryVideos),
            let decoded = try? JSONDecoder().decode([RecentVideoItem].self, from: data) {
-            watchHistoryVideos = decoded
+            watchHistoryVideos = normalizedVideos(decoded, maxCount: maxWatchHistoryVideos)
         }
     }
 
@@ -190,9 +198,35 @@ final class AppSettings: ObservableObject {
         let clamped = min(5, max(1, stars))
         if let index = watchHistoryVideos.firstIndex(where: { $0.videoID == videoID }) {
             watchHistoryVideos[index].watchLaterStars = clamped
+            watchHistoryVideos[index].isThumbsDown = false
         }
         if let index = recentVideos.firstIndex(where: { $0.videoID == videoID }) {
             recentVideos[index].watchLaterStars = clamped
+            recentVideos[index].isThumbsDown = false
+        }
+    }
+
+    func setThumbsDown(videoID: String, isThumbsDown: Bool) {
+        if let index = watchHistoryVideos.firstIndex(where: { $0.videoID == videoID }) {
+            watchHistoryVideos[index].isThumbsDown = isThumbsDown
+            if isThumbsDown {
+                watchHistoryVideos[index].watchLaterStars = 0
+            }
+        }
+        if let index = recentVideos.firstIndex(where: { $0.videoID == videoID }) {
+            recentVideos[index].isThumbsDown = isThumbsDown
+            if isThumbsDown {
+                recentVideos[index].watchLaterStars = 0
+            }
+        }
+    }
+
+    func setWatchHistoryNote(videoID: String, note: String) {
+        if let index = watchHistoryVideos.firstIndex(where: { $0.videoID == videoID }) {
+            watchHistoryVideos[index].watchNote = note
+        }
+        if let index = recentVideos.firstIndex(where: { $0.videoID == videoID }) {
+            recentVideos[index].watchNote = note
         }
     }
 
@@ -214,7 +248,7 @@ final class AppSettings: ObservableObject {
         playedAt: Date,
         maxCount: Int
     ) -> [RecentVideoItem] {
-        var updated = videos
+        var updated = normalizedVideos(videos, maxCount: maxCount)
         if let index = updated.firstIndex(where: { $0.videoID == videoID }) {
             updated[index].title = title
             updated[index].lastPosition = position
@@ -227,6 +261,31 @@ final class AppSettings: ObservableObject {
             updated = Array(updated.prefix(maxCount))
         }
         return updated
+    }
+
+    private func normalizedVideos(_ videos: [RecentVideoItem], maxCount: Int) -> [RecentVideoItem] {
+        let sorted = videos.sorted { $0.lastPlayedAt > $1.lastPlayedAt }
+        var byID: [String: RecentVideoItem] = [:]
+
+        for video in sorted {
+            if var existing = byID[video.videoID] {
+                if existing.watchNote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   !video.watchNote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    existing.watchNote = video.watchNote
+                }
+                existing.watchLaterStars = max(existing.watchLaterStars, video.watchLaterStars)
+                existing.isThumbsDown = existing.isThumbsDown || video.isThumbsDown
+                byID[video.videoID] = existing
+            } else {
+                byID[video.videoID] = video
+            }
+        }
+
+        var normalized = Array(byID.values).sorted { $0.lastPlayedAt > $1.lastPlayedAt }
+        if normalized.count > maxCount {
+            normalized = Array(normalized.prefix(maxCount))
+        }
+        return normalized
     }
 
     private func cleanedVideoTitle(_ rawTitle: String?) -> String? {
@@ -252,13 +311,14 @@ final class AppSettings: ObservableObject {
     }
 
     static func recentVideoMenuTitle(_ video: RecentVideoItem) -> String {
-        "\(video.title) (\(formatPlaybackTime(video.lastPosition)))"
+        video.title
     }
 }
 
 struct WatchHistoryView: View {
     @EnvironmentObject private var settings: AppSettings
     @Environment(\.openWindow) private var openWindow
+    @State private var expandedNotes: Set<String> = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -270,45 +330,69 @@ struct WatchHistoryView: View {
             } else {
                 List {
                     ForEach(settings.watchHistoryVideos) { video in
-                        HStack(spacing: 10) {
-                            Button {
-                                settings.removeHistoryVideo(videoID: video.videoID)
-                            } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundColor(.secondary)
-                            }
-                            .buttonStyle(.plain)
-                            .help("Remove from history")
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack(spacing: 10) {
+                                Button {
+                                    openWindow(id: "main-player")
+                                    NotificationCenter.default.post(name: .openRecentVideo, object: nil, userInfo: ["videoID": video.videoID, "time": video.lastPosition])
+                                } label: {
+                                    HStack(spacing: 10) {
+                                        AsyncImage(url: URL(string: "https://i.ytimg.com/vi/\(video.videoID)/mqdefault.jpg")) { image in
+                                            image
+                                                .resizable()
+                                                .scaledToFill()
+                                        } placeholder: {
+                                            Rectangle().fill(Color.gray.opacity(0.25))
+                                        }
+                                        .frame(width: 72, height: 40)
+                                        .clipShape(RoundedRectangle(cornerRadius: 4))
 
-                            Button {
-                                openWindow(id: "main-player")
-                                NotificationCenter.default.post(name: .openRecentVideo, object: nil, userInfo: ["videoID": video.videoID, "time": video.lastPosition])
-                            } label: {
-                                HStack(spacing: 10) {
-                                    AsyncImage(url: URL(string: "https://i.ytimg.com/vi/\(video.videoID)/mqdefault.jpg")) { image in
-                                        image
-                                            .resizable()
-                                            .scaledToFill()
-                                    } placeholder: {
-                                        Rectangle().fill(Color.gray.opacity(0.25))
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(video.title)
+                                                .lineLimit(2)
+                                            Text("Resume at \(AppSettings.formatPlaybackTime(video.lastPosition))")
+                                                .font(.caption)
+                                                .foregroundColor(.secondary)
+                                        }
+                                        Spacer(minLength: 0)
                                     }
-                                    .frame(width: 72, height: 40)
-                                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                                }
+                                .buttonStyle(.plain)
 
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(video.title)
-                                            .lineLimit(2)
-                                        Text("Resume at \(AppSettings.formatPlaybackTime(video.lastPosition))")
-                                            .font(.caption)
-                                            .foregroundColor(.secondary)
+                                Button {
+                                    settings.setThumbsDown(videoID: video.videoID, isThumbsDown: !video.isThumbsDown)
+                                } label: {
+                                    Image(systemName: video.isThumbsDown ? "hand.thumbsdown.fill" : "hand.thumbsdown")
+                                        .foregroundColor(video.isThumbsDown ? .red : .secondary)
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                                .help(video.isThumbsDown ? "Remove thumbs down" : "Mark as thumbs down")
+
+                                Button {
+                                    toggleNotes(for: video.videoID)
+                                } label: {
+                                    HStack(spacing: 6) {
+                                        Text(expandedNotes.contains(video.videoID) ? "Collapse" : "Notes")
+                                        if hasNotes(videoID: video.videoID) {
+                                            Circle()
+                                                .fill(Color.red)
+                                                .frame(width: 6, height: 6)
+                                        }
                                     }
-                                    Spacer(minLength: 0)
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+
+                                StarRatingView(rating: video.watchLaterStars) { rating in
+                                    settings.setWatchLaterStars(videoID: video.videoID, stars: rating)
                                 }
                             }
-                            .buttonStyle(.plain)
 
-                            StarRatingView(rating: video.watchLaterStars) { rating in
-                                settings.setWatchLaterStars(videoID: video.videoID, stars: rating)
+                            if expandedNotes.contains(video.videoID) {
+                                TextEditor(text: noteBinding(for: video.videoID))
+                                    .frame(minHeight: 70, maxHeight: 110)
+                                    .font(.system(size: 12))
                             }
                         }
                         .padding(.vertical, 4)
@@ -318,6 +402,30 @@ struct WatchHistoryView: View {
             }
         }
         .frame(minWidth: 620, minHeight: 520)
+    }
+
+    private func toggleNotes(for videoID: String) {
+        if expandedNotes.contains(videoID) {
+            expandedNotes.remove(videoID)
+        } else {
+            expandedNotes.insert(videoID)
+        }
+    }
+
+    private func noteBinding(for videoID: String) -> Binding<String> {
+        Binding(
+            get: {
+                settings.watchHistoryVideos.first(where: { $0.videoID == videoID })?.watchNote ?? ""
+            },
+            set: { newValue in
+                settings.setWatchHistoryNote(videoID: videoID, note: newValue)
+            }
+        )
+    }
+
+    private func hasNotes(videoID: String) -> Bool {
+        let note = settings.watchHistoryVideos.first(where: { $0.videoID == videoID })?.watchNote ?? ""
+        return !note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }
 
@@ -376,22 +484,6 @@ struct PlayerCommands: Commands {
             Toggle("Fill Player Window", isOn: $settings.fillPlayerWindowEnabled)
                 .keyboardShortcut("f", modifiers: [.command, .shift])
             Toggle("Lock 16:9 While Resizing", isOn: $settings.lockAspectRatio16x9Enabled)
-
-            Divider()
-            if settings.recentVideos.isEmpty {
-                Button("No Recent Videos") {}
-                    .disabled(true)
-            } else {
-                ForEach(Array(settings.recentVideos.prefix(settings.maxRecentVideos))) { video in
-                    Button(AppSettings.recentVideoMenuTitle(video)) {
-                        NotificationCenter.default.post(name: .openRecentVideo, object: nil, userInfo: ["videoID": video.videoID, "time": video.lastPosition])
-                    }
-                }
-                Divider()
-                Button("Clear Recent Videos") {
-                    settings.clearRecentVideos()
-                }
-            }
         }
     }
 }
@@ -445,7 +537,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        true
+        false
     }
 
     func setupMenu() {

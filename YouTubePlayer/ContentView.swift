@@ -23,6 +23,7 @@ struct ContentView: View {
     private let lastPlaybackPositionsKey = "lastPlaybackPositions"
     private let initialSavedURL: URL?
     @State private var playbackPositions: [String: Double]
+    @State private var currentVideoID: String?
     @State private var pendingInitialURL: URL?
     @State private var window: NSWindow?
     private let windowCoordinator = PlayerWindowCoordinator()
@@ -296,6 +297,7 @@ struct ContentView: View {
         initialSavedURL = UserDefaults.standard.string(forKey: lastURLKey).flatMap { URL(string: $0) }
         let savedPositions = UserDefaults.standard.dictionary(forKey: lastPlaybackPositionsKey) as? [String: Double] ?? [:]
         _playbackPositions = State(initialValue: savedPositions)
+        _currentVideoID = State(initialValue: nil)
         _pendingInitialURL = State(initialValue: initialSavedURL)
 
         let wv = WKWebView(frame: .zero, configuration: config)
@@ -413,7 +415,9 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { notification in
             guard let closingWindow = notification.object as? NSWindow, closingWindow == getWindow() else { return }
-            persistCurrentPlaybackPosition()
+            persistLastOpenedVideoFallback()
+            pauseAndPersistCurrentPlayback()
+            window = nil
         }
         .onAppear {
             // Set up the progress callback
@@ -434,6 +438,7 @@ struct ContentView: View {
             }
         }
         .onDisappear {
+            persistLastOpenedVideoFallback()
             hoverMonitorTimer?.invalidate()
             hoverMonitorTimer = nil
         }
@@ -467,16 +472,7 @@ struct ContentView: View {
         if let videoID = URLHelper.extractVideoID(from: urlString) {
             let savedTime = playbackPositions[videoID]
             let startTime = (savedTime ?? 0) >= 1 ? Int(savedTime ?? 0) : nil
-            let watchURL = URLHelper.makeWatchURL(videoID: videoID, startTime: startTime)
-            DispatchQueue.main.async {
-                if let url = URL(string: watchURL) {
-                    webView.load(URLRequest(url: url))
-                    statusMessage = ""
-                    if rememberAsLast {
-                        UserDefaults.standard.set(watchURL, forKey: lastURLKey)
-                    }
-                }
-            }
+            loadVideo(videoID: videoID, startTime: startTime.map(Double.init) ?? 0, rememberAsLast: rememberAsLast)
         } else {
             DispatchQueue.main.async {
                 statusMessage = "Invalid YouTube URL"
@@ -504,15 +500,66 @@ struct ContentView: View {
     }
 
     func playRecentVideo(videoID: String, startTime: Double) {
+        loadVideo(videoID: videoID, startTime: startTime, rememberAsLast: true)
+    }
+
+    func loadVideo(videoID: String, startTime: Double, rememberAsLast: Bool) {
         let start = max(0, Int(startTime.rounded()))
         let watchURL = URLHelper.makeWatchURL(videoID: videoID, startTime: start > 0 ? start : nil)
         DispatchQueue.main.async {
+            if loadedVideoID() == videoID {
+                currentVideoID = videoID
+                applyHistoryNotice(historyEntry(for: videoID))
+                if rememberAsLast {
+                    UserDefaults.standard.set(watchURL, forKey: lastURLKey)
+                }
+                return
+            }
             if let url = URL(string: watchURL) {
+                let historyEntry = historyEntry(for: videoID)
+                currentVideoID = videoID
                 webView.load(URLRequest(url: url))
-                statusMessage = ""
-                UserDefaults.standard.set(watchURL, forKey: lastURLKey)
+                applyHistoryNotice(historyEntry)
+                if rememberAsLast {
+                    UserDefaults.standard.set(watchURL, forKey: lastURLKey)
+                }
             }
         }
+    }
+
+    func historyEntry(for videoID: String) -> RecentVideoItem? {
+        settings.watchHistoryVideos.first(where: { $0.videoID == videoID })
+            ?? settings.recentVideos.first(where: { $0.videoID == videoID })
+    }
+
+    func applyHistoryNotice(_ video: RecentVideoItem?) {
+        guard let video else {
+            statusMessage = ""
+            return
+        }
+        if video.isThumbsDown {
+            showHistoryAlert(
+                title: "This video was marked thumbs down",
+                message: "\"\(video.title)\" is in your history as a thumbs-down video."
+            )
+            statusMessage = "History note: thumbs down"
+            return
+        }
+        if video.watchLaterStars > 0 {
+            let starLabel = video.watchLaterStars == 1 ? "star" : "stars"
+            statusMessage = "Watched earlier: rated \(video.watchLaterStars) \(starLabel)"
+            return
+        }
+        statusMessage = ""
+    }
+
+    func showHistoryAlert(title: String, message: String) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 
     func configureWindow() {
@@ -755,6 +802,7 @@ struct ContentView: View {
 
     private func updatePlaybackPosition(videoID: String, time: Double, title: String?) {
         DispatchQueue.main.async {
+            currentVideoID = videoID
             playbackPositions[videoID] = time
             UserDefaults.standard.set(playbackPositions, forKey: lastPlaybackPositionsKey)
             let lastWatchURL = URLHelper.makeWatchURL(videoID: videoID, startTime: Optional<Int>.none)
@@ -763,8 +811,39 @@ struct ContentView: View {
         }
     }
 
+    private func activeVideoID() -> String? {
+        currentVideoID ?? webView.url.flatMap { URLHelper.extractVideoID(from: $0.absoluteString) }
+    }
+
+    private func loadedVideoID() -> String? {
+        webView.url.flatMap { URLHelper.extractVideoID(from: $0.absoluteString) }
+    }
+
     private func persistCurrentPlaybackPosition() {
         let script = "window.nativePostPlaybackProgress && window.nativePostPlaybackProgress();"
+        DispatchQueue.main.async {
+            webView.evaluateJavaScript(script)
+        }
+    }
+
+    private func persistLastOpenedVideoFallback() {
+        guard let videoID = activeVideoID() else { return }
+        let savedTime = playbackPositions[videoID].flatMap { $0 >= 1 ? Int($0.rounded()) : nil }
+        let watchURL = URLHelper.makeWatchURL(videoID: videoID, startTime: savedTime)
+        UserDefaults.standard.set(watchURL, forKey: lastURLKey)
+    }
+
+    private func pauseAndPersistCurrentPlayback() {
+        let script = """
+        (function() {
+            window.nativePostPlaybackProgress && window.nativePostPlaybackProgress();
+            const video = document.querySelector('video');
+            if (video) {
+                video.pause();
+                video.currentTime = video.currentTime || 0;
+            }
+        })();
+        """
         DispatchQueue.main.async {
             webView.evaluateJavaScript(script)
         }

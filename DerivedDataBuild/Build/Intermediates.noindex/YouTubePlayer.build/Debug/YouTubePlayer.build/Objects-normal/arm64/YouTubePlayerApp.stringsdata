@@ -1,0 +1,152 @@
+{
+  "source": "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/YouTubePlayer/YouTubePlayerApp.swift",
+  "tables": {
+    "Localizable": [
+      {
+        "comment": "",
+        "key": "No watch history yet",
+        "location": {
+          "startingColumn": 22,
+          "startingLine": 326
+        }
+      },
+      {
+        "comment": "",
+        "key": "Remove thumbs down",
+        "location": {
+          "startingColumn": 60,
+          "startingLine": 370
+        }
+      },
+      {
+        "comment": "",
+        "key": "Mark as thumbs down",
+        "location": {
+          "startingColumn": 83,
+          "startingLine": 370
+        }
+      },
+      {
+        "comment": "",
+        "key": "Resume at %@",
+        "location": {
+          "startingColumn": 50,
+          "startingLine": 353
+        }
+      },
+      {
+        "comment": "",
+        "key": "Collapse",
+        "location": {
+          "startingColumn": 86,
+          "startingLine": 376
+        }
+      },
+      {
+        "comment": "",
+        "key": "Notes",
+        "location": {
+          "startingColumn": 99,
+          "startingLine": 376
+        }
+      },
+      {
+        "comment": "",
+        "key": "Set watch later priority: %lld star%@",
+        "location": {
+          "startingColumn": 23,
+          "startingLine": 447
+        }
+      },
+      {
+        "comment": "",
+        "key": "Player",
+        "location": {
+          "startingColumn": 21,
+          "startingLine": 473
+        }
+      },
+      {
+        "comment": "",
+        "key": "Hover Transparency",
+        "location": {
+          "startingColumn": 20,
+          "startingLine": 461
+        }
+      },
+      {
+        "comment": "",
+        "key": "Always On Top",
+        "location": {
+          "startingColumn": 20,
+          "startingLine": 463
+        }
+      },
+      {
+        "comment": "",
+        "key": "80% Transparency",
+        "location": {
+          "startingColumn": 20,
+          "startingLine": 465
+        }
+      },
+      {
+        "comment": "",
+        "key": "Toggle Opacity",
+        "location": {
+          "startingColumn": 20,
+          "startingLine": 467
+        }
+      },
+      {
+        "comment": "",
+        "key": "Open URL...",
+        "location": {
+          "startingColumn": 20,
+          "startingLine": 474
+        }
+      },
+      {
+        "comment": "",
+        "key": "Open Watch History",
+        "location": {
+          "startingColumn": 20,
+          "startingLine": 479
+        }
+      },
+      {
+        "comment": "",
+        "key": "Fill Player Window",
+        "location": {
+          "startingColumn": 20,
+          "startingLine": 484
+        }
+      },
+      {
+        "comment": "",
+        "key": "Lock 16:9 While Resizing",
+        "location": {
+          "startingColumn": 20,
+          "startingLine": 486
+        }
+      },
+      {
+        "comment": "",
+        "key": "YouTube Player",
+        "location": {
+          "startingColumn": 16,
+          "startingLine": 497
+        }
+      },
+      {
+        "comment": "",
+        "key": "Watch History",
+        "location": {
+          "startingColumn": 16,
+          "startingLine": 505
+        }
+      }
+    ]
+  },
+  "version": 1
+}

@@ -1,28 +1,46 @@
 # YouTube Player
 
-A minimalist, floating YouTube player for macOS with hover-based transparency and always-on-top functionality.
+A macOS YouTube mini-player with a persistent menu bar control surface, playback restore, and lightweight watch library metadata.
 
 ## Features
 
-### Core Functionality
+### Playback
+- **Open YouTube URLs**: Paste, drop, or enter a YouTube link to start playback
+- **Last Video Restore**: Remembers the last opened video and restores it on launch
+- **Resume Playback Position**: Stores timeline progress per video and resumes from the saved time
+- **Minimal Viewing UI**: Hides scrollbars and trims YouTube chrome for a cleaner player
+
+### Library and History
+- **Recent Videos**: Tracks recently opened videos in the menu bar
+- **Watch History**: Keeps a larger persistent history list with thumbnails and resume times
+- **Notes**: Add free-form notes to each watched video
+- **Star Ratings**: Mark priority with 1-5 stars
+- **Thumbs Down**: Mark videos you do not want to revisit
+- **Update In Place**: Reopening an existing video updates the same history entry instead of creating a duplicate
+- **Preserve Metadata**: Notes, ratings, thumbs-down, and timeline stay attached to the same video entry
+
+### Window and Menu Bar Behavior
+- **Menu Bar Control**: Quick access to player features through a persistent status item
 - **Floating Window**: Always stays on top of other applications (toggleable)
-- **Hover Transparency**: Window becomes 90% transparent and click-through when you hover over it
+- **Hover Transparency**: Window becomes transparent and click-through on hover
 - **80% Transparency Preset**: One-tap 80% opacity that stays clickable (⌘8)
 - **Opacity Dimmer**: Toggle to 25% opacity while keeping clicks active (⌘P)
-- **Menu Bar Control**: Quick access to all features via a menu bar icon
-- **Drag & Drop**: Simply drag YouTube URLs onto the player window
-- **Minimal UI**: Clean interface with hidden scrollbars and YouTube header
-- **URL Persistence**: Remembers and reloads the last played YouTube URL on launch
+- **Fill Player Window**: Expands the video view for a cleaner watch surface
+- **16:9 Resize Lock**: Optional aspect-ratio lock while resizing
+- **Close Window Without Quitting**: Closing the player window stops audio and closes the window, but keeps the menu bar app running until you quit explicitly
 
 ### Controls
 
 #### Menu Bar Icon
 Click the play button icon in the menu bar to access:
 - **Open URL...** (⌘O) - Open a YouTube video by URL
-- **Toggle Transparency** (⌘T) - Enable/disable hover transparency mode
-- **Toggle Always On Top** (⌘L) - Control whether window floats above others
+- **Hover Transparency** (⌘T) - Enable/disable hover transparency mode
+- **Always On Top** (⌘L) - Control whether window floats above others
 - **80% Transparency** (⌘8) - Set a fixed 80% transparent, still-clickable window
 - **Toggle Opacity** (⌘P) - Dim to 25% opacity (clickable) or restore to 100%
+- **Fill Player Window** (⌘⇧F) - Expand the player area
+- **Lock 16:9 While Resizing** - Keep the player ratio stable while resizing
+- **Recent Videos** - Reopen tracked items from the menu bar
 - **Quit** (⌘Q) - Close the application
 
 ## Design Architecture
@@ -43,6 +61,7 @@ YouTubePlayer/
 #### 1. App Delegate (YouTubePlayerApp.swift)
 - **Menu Bar Icon**: Creates a persistent status item in the macOS menu bar
 - **Menu Management**: Provides quick access to all app features
+- **Recent Video Menu**: Rebuilds the menu from persisted history
 - **Notification System**: Uses NotificationCenter to communicate with ContentView
 
 ```swift
@@ -54,8 +73,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 ```
 
 #### 2. Content View (ContentView.swift)
-- **State Management**: Tracks transparency mode, hover state, and window level
+- **State Management**: Tracks transparency mode, hover state, active playback, and window level
 - **Window Configuration**: Sets up transparent titlebar and floating behavior
+- **Playback Restore**: Reloads the last saved video and playback position
+- **Progress Persistence**: Saves timeline progress back into app state and user defaults
 - **Hover Detection**: Uses `.onHover` modifier to detect mouse position
 - **Window Manipulation**: Controls alpha value and mouse event pass-through
 
@@ -176,6 +197,18 @@ Version/17.0 Safari/605.1.15
 **Method 3: Keyboard Shortcut**
 - Press ⌘O to open the URL dialog
 
+### Library Behavior
+- If you open a link for a video that already exists in recent videos or watch history, the app updates the existing entry instead of creating a new one.
+- The existing entry keeps its note, star rating, thumbs-down state, and saved timeline.
+- If the same video is already the active player item, the app keeps the current entry and timeline intact instead of reloading a duplicate playback state.
+
+### Watch History
+- Open the Watch History window from the Player menu.
+- Select a video to reopen it at the saved time.
+- Add or edit notes directly from the history window.
+- Mark a video with stars or a thumbs-down flag.
+- Watch-history items are intended to persist; metadata should stay attached to the same video entry.
+
 ### Controlling Transparency
 1. **Enable Hover Mode**: Click menu bar icon → "Toggle Transparency" (or press ⌘T)
 2. Move mouse over window to make it transparent and click-through
@@ -187,9 +220,10 @@ Version/17.0 Safari/605.1.15
 
 ### Window Behavior
 - **Always On Top**: Enabled by default, toggle with ⌘L
-- **Transparent Titlebar**: Window controls blend seamlessly
-- **Black Background**: Clean viewing experience
+- **Player Window Close**: Closing the player window stops playback/audio and closes only that window
+- **Menu Bar Persistence**: The app remains available from the menu bar until Quit is chosen
 - **Last URL Persistence**: The last played YouTube URL is reloaded on launch
+- **Playback Position Persistence**: The last timeline position for each video is saved and reused
 
 ## Design Philosophy
 
@@ -217,7 +251,7 @@ Potential features for future versions:
 - Playlist support
 - Volume control from menu bar
 - Window size presets
-- Remember last position/size
+- Remember more window/layout presets
 - Dark/Light theme support
 
 ## Requirements
