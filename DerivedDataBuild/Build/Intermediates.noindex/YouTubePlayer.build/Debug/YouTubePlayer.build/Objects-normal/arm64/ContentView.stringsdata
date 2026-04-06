@@ -1,5 +1,24 @@
 {
   "source": "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/YouTubePlayer/ContentView.swift",
-  "tables": {},
+  "tables": {
+    "Localizable": [
+      {
+        "comment": "",
+        "key": "Drop YouTube URL Here",
+        "location": {
+          "startingColumn": 30,
+          "startingLine": 395
+        }
+      },
+      {
+        "comment": "",
+        "key": "Drag a link from your browser address bar to start playback",
+        "location": {
+          "startingColumn": 30,
+          "startingLine": 399
+        }
+      }
+    ]
+  },
   "version": 1
 }

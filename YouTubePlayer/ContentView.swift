@@ -1,7 +1,5 @@
 import SwiftUI
 import WebKit
-import UniformTypeIdentifiers
-
 struct ContentView: View {
     @EnvironmentObject var settings: AppSettings
     @State private var webView: WKWebView
@@ -324,7 +322,17 @@ struct ContentView: View {
             Color.clear
                 .edgesIgnoringSafeArea(.all)
 
-            WebView(webView: webView)
+            WebView(
+                webView: webView,
+                onDrop: { droppedURL in
+                    loadYouTubeURL(droppedURL)
+                },
+                onTargetedChange: { isTargeted in
+                    DispatchQueue.main.async {
+                        isDropTargeted = isTargeted
+                    }
+                }
+            )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .opacity(contentOpacity)
 
@@ -363,13 +371,46 @@ struct ContentView: View {
                         .padding()
                 }
             }
+
+            if isDropTargeted {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(Color.black.opacity(0.55))
+
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .strokeBorder(
+                            LinearGradient(
+                                colors: [Color.red.opacity(0.95), Color.white.opacity(0.9)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 3
+                        )
+
+                    VStack(spacing: 10) {
+                        Image(systemName: "link.circle.fill")
+                            .font(.system(size: 42, weight: .semibold))
+                            .foregroundStyle(Color.white, Color.red.opacity(0.95))
+
+                        Text("Drop YouTube URL Here")
+                            .font(.system(size: 22, weight: .bold))
+                            .foregroundColor(.white)
+
+                        Text("Drag a link from your browser address bar to start playback")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.white.opacity(0.82))
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding(28)
+                }
+                .padding(26)
+                .allowsHitTesting(false)
+                .transition(.opacity)
+            }
         }
         .onHover { hovering in
             isHovering = hovering
             handleHoverChange(hovering)
-        }
-        .onDrop(of: [.url, .text], isTargeted: $isDropTargeted) { providers in
-            handleDrop(providers: providers)
         }
         .onReceive(NotificationCenter.default.publisher(for: .openURL)) { _ in
             promptForURL()
@@ -427,7 +468,8 @@ struct ContentView: View {
 
             scheduleWindowSetup()
             // Sync initial state with settings
-            applyAlwaysOnTopWhenReady()
+            isAlwaysOnTop = settings.alwaysOnTopEnabled
+            setAlwaysOnTop(to: settings.alwaysOnTopEnabled)
             setEightyTransparency(to: settings.eightyTransparencyEnabled)
             setHoverTransparency(to: settings.hoverTransparencyEnabled)
             setFillPlayerWindow(to: settings.fillPlayerWindowEnabled)
@@ -442,30 +484,6 @@ struct ContentView: View {
             hoverMonitorTimer?.invalidate()
             hoverMonitorTimer = nil
         }
-    }
-
-    func handleDrop(providers: [NSItemProvider]) -> Bool {
-        for provider in providers {
-            if provider.hasItemConformingToTypeIdentifier(UTType.url.identifier) {
-                provider.loadItem(forTypeIdentifier: UTType.url.identifier) { item, error in
-                    if let data = item as? Data,
-                       let url = URL(dataRepresentation: data, relativeTo: nil) {
-                        loadYouTubeURL(url.absoluteString)
-                    }
-                }
-                return true
-            }
-
-            if provider.hasItemConformingToTypeIdentifier(UTType.text.identifier) {
-                provider.loadItem(forTypeIdentifier: UTType.text.identifier) { item, error in
-                    if let urlString = item as? String {
-                        loadYouTubeURL(urlString)
-                    }
-                }
-                return true
-            }
-        }
-        return false
     }
 
     func loadYouTubeURL(_ urlString: String, rememberAsLast: Bool = true) {
@@ -577,6 +595,7 @@ struct ContentView: View {
         window.alphaValue = 1.0
         contentOpacity = 1.0
         window.ignoresMouseEvents = false
+        applyAlwaysOnTopState(window)
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         self.window = window
@@ -903,6 +922,8 @@ struct ContentView: View {
         }
 
         windowCoordinator.lockAspectRatio16x9 = settings.lockAspectRatio16x9Enabled
+        isAlwaysOnTop = settings.alwaysOnTopEnabled
+        applyAlwaysOnTopState(window)
     }
 
     private func restoreWindowFrameIfNeeded(_ window: NSWindow) {

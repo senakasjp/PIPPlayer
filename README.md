@@ -5,7 +5,7 @@ A macOS YouTube mini-player with a persistent menu bar control surface, playback
 ## Features
 
 ### Playback
-- **Open YouTube URLs**: Paste, drop, or enter a YouTube link to start playback
+- **Open YouTube URLs**: Paste, drop, or enter a YouTube link to start playback or replace the current video
 - **Last Video Restore**: Remembers the last opened video and restores it on launch
 - **Resume Playback Position**: Stores timeline progress per video and resumes from the saved time
 - **Minimal Viewing UI**: Hides scrollbars and trims YouTube chrome for a cleaner player
@@ -13,6 +13,7 @@ A macOS YouTube mini-player with a persistent menu bar control surface, playback
 ### Library and History
 - **Recent Videos**: Tracks recently opened videos in the menu bar
 - **Watch History**: Keeps a larger persistent history list with thumbnails and resume times
+- **Remove Watched Items**: Delete individual watched entries from the watch history/library
 - **Notes**: Add free-form notes to each watched video
 - **Star Ratings**: Mark priority with 1-5 stars
 - **Thumbs Down**: Mark videos you do not want to revisit

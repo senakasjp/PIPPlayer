@@ -1,0 +1,59 @@
+{
+  "" : {
+    "diagnostics" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Debug/YouTubePlayer.build/Objects-normal/arm64/YouTubePlayer-primary.dia",
+    "emit-module-dependencies" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Debug/YouTubePlayer.build/Objects-normal/arm64/YouTubePlayer-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Debug/YouTubePlayer.build/Objects-normal/arm64/YouTubePlayer-primary-emit-module.dia",
+    "pch" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Debug/YouTubePlayer.build/Objects-normal/arm64/YouTubePlayer-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Debug/YouTubePlayer.build/Objects-normal/arm64/YouTubePlayer-primary.swiftdeps"
+  },
+  "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Debug/YouTubePlayer.build/DerivedSources/GeneratedAssetSymbols.swift" : {
+    "const-values" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Debug/YouTubePlayer.build/Objects-normal/arm64/GeneratedAssetSymbols.swiftconstvalues",
+    "dependencies" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Debug/YouTubePlayer.build/Objects-normal/arm64/GeneratedAssetSymbols.d",
+    "diagnostics" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Debug/YouTubePlayer.build/Objects-normal/arm64/GeneratedAssetSymbols.dia",
+    "index-unit-output-path" : "/YouTubePlayer.build/Debug/YouTubePlayer.build/Objects-normal/arm64/GeneratedAssetSymbols.o",
+    "llvm-bc" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Debug/YouTubePlayer.build/Objects-normal/arm64/GeneratedAssetSymbols.bc",
+    "object" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Debug/YouTubePlayer.build/Objects-normal/arm64/GeneratedAssetSymbols.o",
+    "swift-dependencies" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Debug/YouTubePlayer.build/Objects-normal/arm64/GeneratedAssetSymbols.swiftdeps",
+    "swiftmodule" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Debug/YouTubePlayer.build/Objects-normal/arm64/GeneratedAssetSymbols~partial.swiftmodule"
+  },
+  "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/YouTubePlayer/ContentView.swift" : {
+    "const-values" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Debug/YouTubePlayer.build/Objects-normal/arm64/ContentView.swiftconstvalues",
+    "dependencies" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Debug/YouTubePlayer.build/Objects-normal/arm64/ContentView.d",
+    "diagnostics" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Debug/YouTubePlayer.build/Objects-normal/arm64/ContentView.dia",
+    "index-unit-output-path" : "/YouTubePlayer.build/Debug/YouTubePlayer.build/Objects-normal/arm64/ContentView.o",
+    "llvm-bc" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Debug/YouTubePlayer.build/Objects-normal/arm64/ContentView.bc",
+    "object" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Debug/YouTubePlayer.build/Objects-normal/arm64/ContentView.o",
+    "swift-dependencies" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Debug/YouTubePlayer.build/Objects-normal/arm64/ContentView.swiftdeps",
+    "swiftmodule" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Debug/YouTubePlayer.build/Objects-normal/arm64/ContentView~partial.swiftmodule"
+  },
+  "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/YouTubePlayer/URLHelper.swift" : {
+    "const-values" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Debug/YouTubePlayer.build/Objects-normal/arm64/URLHelper.swiftconstvalues",
+    "dependencies" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Debug/YouTubePlayer.build/Objects-normal/arm64/URLHelper.d",
+    "diagnostics" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Debug/YouTubePlayer.build/Objects-normal/arm64/URLHelper.dia",
+    "index-unit-output-path" : "/YouTubePlayer.build/Debug/YouTubePlayer.build/Objects-normal/arm64/URLHelper.o",
+    "llvm-bc" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Debug/YouTubePlayer.build/Objects-normal/arm64/URLHelper.bc",
+    "object" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Debug/YouTubePlayer.build/Objects-normal/arm64/URLHelper.o",
+    "swift-dependencies" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Debug/YouTubePlayer.build/Objects-normal/arm64/URLHelper.swiftdeps",
+    "swiftmodule" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Debug/YouTubePlayer.build/Objects-normal/arm64/URLHelper~partial.swiftmodule"
+  },
+  "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/YouTubePlayer/WebView.swift" : {
+    "const-values" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Debug/YouTubePlayer.build/Objects-normal/arm64/WebView.swiftconstvalues",
+    "dependencies" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Debug/YouTubePlayer.build/Objects-normal/arm64/WebView.d",
+    "diagnostics" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Debug/YouTubePlayer.build/Objects-normal/arm64/WebView.dia",
+    "index-unit-output-path" : "/YouTubePlayer.build/Debug/YouTubePlayer.build/Objects-normal/arm64/WebView.o",
+    "llvm-bc" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Debug/YouTubePlayer.build/Objects-normal/arm64/WebView.bc",
+    "object" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Debug/YouTubePlayer.build/Objects-normal/arm64/WebView.o",
+    "swift-dependencies" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Debug/YouTubePlayer.build/Objects-normal/arm64/WebView.swiftdeps",
+    "swiftmodule" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Debug/YouTubePlayer.build/Objects-normal/arm64/WebView~partial.swiftmodule"
+  },
+  "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/YouTubePlayer/YouTubePlayerApp.swift" : {
+    "const-values" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Debug/YouTubePlayer.build/Objects-normal/arm64/YouTubePlayerApp.swiftconstvalues",
+    "dependencies" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Debug/YouTubePlayer.build/Objects-normal/arm64/YouTubePlayerApp.d",
+    "diagnostics" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Debug/YouTubePlayer.build/Objects-normal/arm64/YouTubePlayerApp.dia",
+    "index-unit-output-path" : "/YouTubePlayer.build/Debug/YouTubePlayer.build/Objects-normal/arm64/YouTubePlayerApp.o",
+    "llvm-bc" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Debug/YouTubePlayer.build/Objects-normal/arm64/YouTubePlayerApp.bc",
+    "object" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Debug/YouTubePlayer.build/Objects-normal/arm64/YouTubePlayerApp.o",
+    "swift-dependencies" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Debug/YouTubePlayer.build/Objects-normal/arm64/YouTubePlayerApp.swiftdeps",
+    "swiftmodule" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/YouTubePlayer.build/Debug/YouTubePlayer.build/Objects-normal/arm64/YouTubePlayerApp~partial.swiftmodule"
+  }
+}

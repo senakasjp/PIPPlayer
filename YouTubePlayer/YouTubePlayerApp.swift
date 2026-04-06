@@ -387,6 +387,15 @@ struct WatchHistoryView: View {
                                 StarRatingView(rating: video.watchLaterStars) { rating in
                                     settings.setWatchLaterStars(videoID: video.videoID, stars: rating)
                                 }
+
+                                Button(role: .destructive) {
+                                    removeHistoryVideo(videoID: video.videoID)
+                                } label: {
+                                    Image(systemName: "trash")
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                                .help("Remove from watch history")
                             }
 
                             if expandedNotes.contains(video.videoID) {
@@ -410,6 +419,11 @@ struct WatchHistoryView: View {
         } else {
             expandedNotes.insert(videoID)
         }
+    }
+
+    private func removeHistoryVideo(videoID: String) {
+        expandedNotes.remove(videoID)
+        settings.removeHistoryVideo(videoID: videoID)
     }
 
     private func noteBinding(for videoID: String) -> Binding<String> {

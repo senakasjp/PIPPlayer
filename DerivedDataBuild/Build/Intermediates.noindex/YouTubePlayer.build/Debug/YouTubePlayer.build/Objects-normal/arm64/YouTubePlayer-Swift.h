@@ -280,6 +280,7 @@ typedef unsigned int swift_uint4  __attribute__((__ext_vector_type__(4)));
 #pragma clang diagnostic ignored "-Watimport-in-framework-header"
 #endif
 @import AppKit;
+@import Foundation;
 @import ObjectiveC;
 @import WebKit;
 #endif
@@ -324,11 +325,30 @@ SWIFT_CLASS("_TtC13YouTubePlayer11AppDelegate")
 - (nonnull instancetype)init OBJC_DESIGNATED_INITIALIZER;
 @end
 
+@class NSCoder;
+@protocol NSDraggingInfo;
+SWIFT_CLASS("_TtC13YouTubePlayer16DropReceiverView")
+@interface DropReceiverView : NSView
+- (nonnull instancetype)initWithFrame:(NSRect)frameRect OBJC_DESIGNATED_INITIALIZER;
+- (nullable instancetype)initWithCoder:(NSCoder * _Nonnull)coder OBJC_DESIGNATED_INITIALIZER;
+- (NSDragOperation)draggingEntered:(id <NSDraggingInfo> _Nonnull)sender SWIFT_WARN_UNUSED_RESULT;
+- (void)draggingExited:(id <NSDraggingInfo> _Nullable)sender;
+- (BOOL)prepareForDragOperation:(id <NSDraggingInfo> _Nonnull)sender SWIFT_WARN_UNUSED_RESULT;
+- (BOOL)performDragOperation:(id <NSDraggingInfo> _Nonnull)sender SWIFT_WARN_UNUSED_RESULT;
+- (void)concludeDragOperation:(id <NSDraggingInfo> _Nullable)sender;
+@end
+
 SWIFT_CLASS("_TtC13YouTubePlayer23PlayerWindowCoordinator")
 @interface PlayerWindowCoordinator : NSObject <NSWindowDelegate>
 - (void)windowDidResize:(NSNotification * _Nonnull)notification;
 - (void)windowDidMove:(NSNotification * _Nonnull)notification;
 - (nonnull instancetype)init OBJC_DESIGNATED_INITIALIZER;
+@end
+
+SWIFT_CLASS("_TtC13YouTubePlayer16WebContainerView")
+@interface WebContainerView : NSView
+- (nullable instancetype)initWithCoder:(NSCoder * _Nonnull)coder OBJC_DESIGNATED_INITIALIZER SWIFT_UNAVAILABLE;
+- (nonnull instancetype)initWithFrame:(NSRect)frameRect SWIFT_UNAVAILABLE;
 @end
 
 @class WKUserContentController;

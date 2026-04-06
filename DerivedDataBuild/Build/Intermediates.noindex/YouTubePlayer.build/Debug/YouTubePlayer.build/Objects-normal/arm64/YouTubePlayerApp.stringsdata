@@ -28,6 +28,14 @@
       },
       {
         "comment": "",
+        "key": "Remove from watch history",
+        "location": {
+          "startingColumn": 39,
+          "startingLine": 398
+        }
+      },
+      {
+        "comment": "",
         "key": "Resume at %@",
         "location": {
           "startingColumn": 50,
@@ -55,7 +63,7 @@
         "key": "Set watch later priority: %lld star%@",
         "location": {
           "startingColumn": 23,
-          "startingLine": 447
+          "startingLine": 461
         }
       },
       {
@@ -63,7 +71,7 @@
         "key": "Player",
         "location": {
           "startingColumn": 21,
-          "startingLine": 473
+          "startingLine": 487
         }
       },
       {
@@ -71,7 +79,7 @@
         "key": "Hover Transparency",
         "location": {
           "startingColumn": 20,
-          "startingLine": 461
+          "startingLine": 475
         }
       },
       {
@@ -79,7 +87,7 @@
         "key": "Always On Top",
         "location": {
           "startingColumn": 20,
-          "startingLine": 463
+          "startingLine": 477
         }
       },
       {
@@ -87,7 +95,7 @@
         "key": "80% Transparency",
         "location": {
           "startingColumn": 20,
-          "startingLine": 465
+          "startingLine": 479
         }
       },
       {
@@ -95,7 +103,7 @@
         "key": "Toggle Opacity",
         "location": {
           "startingColumn": 20,
-          "startingLine": 467
+          "startingLine": 481
         }
       },
       {
@@ -103,7 +111,7 @@
         "key": "Open URL...",
         "location": {
           "startingColumn": 20,
-          "startingLine": 474
+          "startingLine": 488
         }
       },
       {
@@ -111,7 +119,7 @@
         "key": "Open Watch History",
         "location": {
           "startingColumn": 20,
-          "startingLine": 479
+          "startingLine": 493
         }
       },
       {
@@ -119,7 +127,7 @@
         "key": "Fill Player Window",
         "location": {
           "startingColumn": 20,
-          "startingLine": 484
+          "startingLine": 498
         }
       },
       {
@@ -127,7 +135,7 @@
         "key": "Lock 16:9 While Resizing",
         "location": {
           "startingColumn": 20,
-          "startingLine": 486
+          "startingLine": 500
         }
       },
       {
@@ -135,7 +143,7 @@
         "key": "YouTube Player",
         "location": {
           "startingColumn": 16,
-          "startingLine": 497
+          "startingLine": 511
         }
       },
       {
@@ -143,7 +151,7 @@
         "key": "Watch History",
         "location": {
           "startingColumn": 16,
-          "startingLine": 505
+          "startingLine": 519
         }
       }
     ]
