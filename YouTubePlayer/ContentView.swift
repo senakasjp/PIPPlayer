@@ -14,8 +14,10 @@ struct ContentView: View {
     @State private var contentOpacity: Double = 1.0
     @State private var isFillPlayerWindowEnabled = false
     @State private var hoverMonitorTimer: Timer?
+    @State private var historyNoticeClearTask: DispatchWorkItem?
     private let playerWindowIdentifier = NSUserInterfaceItemIdentifier("YouTubePlayerWindow")
     private let playerWindowFrameKey = "playerWindowFrame"
+    private let alwaysOnTopLevel = NSWindow.Level.statusBar
     private let alwaysOnTopBehaviors: NSWindow.CollectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
     private let lastURLKey = "lastURL"
     private let lastPlaybackPositionsKey = "lastPlaybackPositions"
@@ -454,6 +456,13 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
             persistCurrentPlaybackPosition()
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            reassertAlwaysOnTopState()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
+            guard let eventWindow = notification.object as? NSWindow, isPlayerWindow(eventWindow) else { return }
+            reassertAlwaysOnTopState()
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { notification in
             guard let closingWindow = notification.object as? NSWindow, closingWindow == getWindow() else { return }
             persistLastOpenedVideoFallback()
@@ -522,7 +531,10 @@ struct ContentView: View {
     }
 
     func loadVideo(videoID: String, startTime: Double, rememberAsLast: Bool) {
-        let start = max(0, Int(startTime.rounded()))
+        if rememberAsLast {
+            settings.allowRecording(videoID: videoID)
+        }
+        let start = adjustedResumeStartTime(from: startTime)
         let watchURL = URLHelper.makeWatchURL(videoID: videoID, startTime: start > 0 ? start : nil)
         DispatchQueue.main.async {
             if loadedVideoID() == videoID {
@@ -545,12 +557,20 @@ struct ContentView: View {
         }
     }
 
+    private func adjustedResumeStartTime(from startTime: Double) -> Int {
+        let roundedStart = Int(startTime.rounded())
+        guard roundedStart > 0 else { return 0 }
+        return max(0, roundedStart - 5)
+    }
+
     func historyEntry(for videoID: String) -> RecentVideoItem? {
         settings.watchHistoryVideos.first(where: { $0.videoID == videoID })
             ?? settings.recentVideos.first(where: { $0.videoID == videoID })
     }
 
     func applyHistoryNotice(_ video: RecentVideoItem?) {
+        historyNoticeClearTask?.cancel()
+        historyNoticeClearTask = nil
         guard let video else {
             statusMessage = ""
             return
@@ -565,10 +585,22 @@ struct ContentView: View {
         }
         if video.watchLaterStars > 0 {
             let starLabel = video.watchLaterStars == 1 ? "star" : "stars"
-            statusMessage = "Watched earlier: rated \(video.watchLaterStars) \(starLabel)"
+            showTemporaryHistoryNotice("Watched earlier: rated \(video.watchLaterStars) \(starLabel)", duration: 180)
             return
         }
         statusMessage = ""
+    }
+
+    private func showTemporaryHistoryNotice(_ message: String, duration: TimeInterval) {
+        statusMessage = message
+        let clearTask = DispatchWorkItem {
+            if statusMessage == message {
+                statusMessage = ""
+            }
+            historyNoticeClearTask = nil
+        }
+        historyNoticeClearTask = clearTask
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration, execute: clearTask)
     }
 
     func showHistoryAlert(title: String, message: String) {
@@ -918,7 +950,7 @@ struct ContentView: View {
 
             // Set collection behavior once during initial setup
             // This makes the window appear on all spaces and move with active space
-            window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+            window.collectionBehavior = alwaysOnTopBehaviors
         }
 
         windowCoordinator.lockAspectRatio16x9 = settings.lockAspectRatio16x9Enabled
@@ -946,7 +978,7 @@ struct ContentView: View {
         // Dispatch to next run loop to avoid modifying window during layout
         DispatchQueue.main.async {
             // Just use window level - don't modify collection behavior
-            let targetLevel: NSWindow.Level = self.isAlwaysOnTop ? .floating : .normal
+            let targetLevel: NSWindow.Level = self.isAlwaysOnTop ? self.alwaysOnTopLevel : .normal
             if window.level != targetLevel {
                 window.level = targetLevel
             }
@@ -973,8 +1005,8 @@ struct ContentView: View {
 
     private func applyAlwaysOnTopLevelAndBehavior(_ window: NSWindow) {
         // Just set window level - collection behavior modification causes crashes
-        if window.level != .floating {
-            window.level = .floating
+        if window.level != alwaysOnTopLevel {
+            window.level = alwaysOnTopLevel
         }
     }
 

@@ -63,7 +63,12 @@ final class AppSettings: ObservableObject {
         static let lockAspectRatio16x9 = "settings.lockAspectRatio16x9Enabled"
         static let recentVideos = "settings.recentVideos"
         static let watchHistoryVideos = "settings.watchHistoryVideos"
+        static let deletedRecentVideoIDs = "settings.deletedRecentVideoIDs"
+        static let deletedWatchHistoryVideoIDs = "settings.deletedWatchHistoryVideoIDs"
     }
+
+    private var deletedRecentVideoIDs: Set<String> = []
+    private var deletedWatchHistoryVideoIDs: Set<String> = []
 
     @Published var recentVideos: [RecentVideoItem] = [] {
         didSet {
@@ -149,6 +154,8 @@ final class AppSettings: ObservableObject {
            let decoded = try? JSONDecoder().decode([RecentVideoItem].self, from: data) {
             watchHistoryVideos = normalizedVideos(decoded, maxCount: maxWatchHistoryVideos)
         }
+        deletedRecentVideoIDs = Set(defaults.stringArray(forKey: Keys.deletedRecentVideoIDs) ?? [])
+        deletedWatchHistoryVideoIDs = Set(defaults.stringArray(forKey: Keys.deletedWatchHistoryVideoIDs) ?? [])
     }
 
     func recordRecentVideo(videoID: String, title: String?, position: Double) {
@@ -159,39 +166,59 @@ final class AppSettings: ObservableObject {
         let safePosition = max(0, position)
         let now = Date()
 
-        recentVideos = upsertVideo(
-            in: recentVideos,
-            videoID: videoID,
-            title: cleanedTitle,
-            position: safePosition,
-            playedAt: now,
-            maxCount: maxRecentVideos
-        )
+        if !deletedRecentVideoIDs.contains(videoID) {
+            recentVideos = upsertVideo(
+                in: recentVideos,
+                videoID: videoID,
+                title: cleanedTitle,
+                position: safePosition,
+                playedAt: now,
+                maxCount: maxRecentVideos
+            )
+        }
 
-        watchHistoryVideos = upsertVideo(
-            in: watchHistoryVideos,
-            videoID: videoID,
-            title: cleanedTitle,
-            position: safePosition,
-            playedAt: now,
-            maxCount: maxWatchHistoryVideos
-        )
+        if !deletedWatchHistoryVideoIDs.contains(videoID) {
+            watchHistoryVideos = upsertVideo(
+                in: watchHistoryVideos,
+                videoID: videoID,
+                title: cleanedTitle,
+                position: safePosition,
+                playedAt: now,
+                maxCount: maxWatchHistoryVideos
+            )
+        }
     }
 
     func removeHistoryVideo(videoID: String) {
+        deletedWatchHistoryVideoIDs.insert(videoID)
+        persistDeletedVideoIDs()
         watchHistoryVideos.removeAll { $0.videoID == videoID }
     }
 
     func removeRecentVideo(videoID: String) {
+        deletedRecentVideoIDs.insert(videoID)
+        persistDeletedVideoIDs()
         recentVideos.removeAll { $0.videoID == videoID }
     }
 
     func clearRecentVideos() {
+        deletedRecentVideoIDs.formUnion(recentVideos.map(\.videoID))
+        persistDeletedVideoIDs()
         recentVideos = []
     }
 
     func clearWatchHistoryVideos() {
+        deletedWatchHistoryVideoIDs.formUnion(watchHistoryVideos.map(\.videoID))
+        persistDeletedVideoIDs()
         watchHistoryVideos = []
+    }
+
+    func allowRecording(videoID: String) {
+        let removedRecent = deletedRecentVideoIDs.remove(videoID) != nil
+        let removedWatchHistory = deletedWatchHistoryVideoIDs.remove(videoID) != nil
+        if removedRecent || removedWatchHistory {
+            persistDeletedVideoIDs()
+        }
     }
 
     func setWatchLaterStars(videoID: String, stars: Int) {
@@ -238,6 +265,37 @@ final class AppSettings: ObservableObject {
     private func persistWatchHistoryVideos() {
         guard let data = try? JSONEncoder().encode(watchHistoryVideos) else { return }
         defaults.set(data, forKey: Keys.watchHistoryVideos)
+    }
+
+    private func persistDeletedVideoIDs() {
+        defaults.set(Array(deletedRecentVideoIDs), forKey: Keys.deletedRecentVideoIDs)
+        defaults.set(Array(deletedWatchHistoryVideoIDs), forKey: Keys.deletedWatchHistoryVideoIDs)
+    }
+
+    func storedHistoryUsageBytes() -> Int {
+        let dataBytes = [
+            Keys.recentVideos,
+            Keys.watchHistoryVideos
+        ].reduce(0) { total, key in
+            total + (defaults.data(forKey: key)?.count ?? 0)
+        }
+
+        let deletedIDBytes = [
+            Keys.deletedRecentVideoIDs,
+            Keys.deletedWatchHistoryVideoIDs
+        ].reduce(0) { total, key in
+            guard let strings = defaults.stringArray(forKey: key),
+                  let data = try? PropertyListSerialization.data(fromPropertyList: strings, format: .binary, options: 0) else {
+                return total
+            }
+            return total + data.count
+        }
+
+        return dataBytes + deletedIDBytes
+    }
+
+    static func formatStorageSize(_ bytes: Int) -> String {
+        ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
     }
 
     private func upsertVideo(
@@ -344,7 +402,7 @@ struct WatchHistoryView: View {
                                         } placeholder: {
                                             Rectangle().fill(Color.gray.opacity(0.25))
                                         }
-                                        .frame(width: 72, height: 40)
+                                        .frame(width: 96, height: 54)
                                         .clipShape(RoundedRectangle(cornerRadius: 4))
 
                                         VStack(alignment: .leading, spacing: 2) {
@@ -534,6 +592,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var fillPlayerWindowItem: NSMenuItem?
     private var lockAspectRatio16x9Item: NSMenuItem?
     private var recentVideosItem: NSMenuItem?
+    private var statisticsItem: NSMenuItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Create menu bar icon
@@ -592,6 +651,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(recentVideos)
         recentVideosItem = recentVideos
         rebuildRecentVideosMenu()
+
+        let statistics = NSMenuItem(title: "Statistics", action: nil, keyEquivalent: "")
+        statistics.submenu = NSMenu(title: "Statistics")
+        menu.addItem(statistics)
+        statisticsItem = statistics
+        rebuildStatisticsMenu()
 
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
@@ -670,6 +735,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         submenu.addItem(clearAllItem)
     }
 
+    private func rebuildStatisticsMenu() {
+        guard let submenu = statisticsItem?.submenu else { return }
+        submenu.removeAllItems()
+
+        let recentCount = settings.recentVideos.count
+        let historyCount = settings.watchHistoryVideos.count
+        let usage = AppSettings.formatStorageSize(settings.storedHistoryUsageBytes())
+
+        [
+            "Recent Entries: \(recentCount)",
+            "Watch History Entries: \(historyCount)",
+            "Disk Usage: \(usage)"
+        ].forEach { title in
+            let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            submenu.addItem(item)
+        }
+    }
+
     private func applyThumbnail(to item: NSMenuItem, videoID: String) {
         if let cached = thumbnailCache[videoID] {
             item.image = cached
@@ -692,7 +776,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func resizedThumbnail(_ image: NSImage) -> NSImage? {
-        let targetSize = NSSize(width: 28, height: 20)
+        let targetSize = NSSize(width: 36, height: 26)
         let thumbnail = NSImage(size: targetSize)
         thumbnail.lockFocus()
         NSGraphicsContext.current?.imageInterpolation = .high
@@ -730,6 +814,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         })
         observers.append(center.addObserver(forName: .recentVideosUpdated, object: nil, queue: .main) { [weak self] _ in
             self?.rebuildRecentVideosMenu()
+            self?.rebuildStatisticsMenu()
+        })
+        observers.append(center.addObserver(forName: .watchHistoryUpdated, object: nil, queue: .main) { [weak self] _ in
+            self?.rebuildStatisticsMenu()
         })
     }
 

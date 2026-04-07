@@ -38,7 +38,7 @@
       "indexPCHPath" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Index.noindex/PrecompiledHeaders",
       "pchPath" : "/Volumes/STORAGE/SITES-2025/YouTubePlayerFresh/DerivedDataBuild/Build/Intermediates.noindex/PrecompiledHeaders"
     },
-    "configurationName" : "Release",
+    "configurationName" : "Debug",
     "overrides" : {
       "commandLine" : {
         "table" : {

@@ -7,7 +7,7 @@
         "key": "Drop YouTube URL Here",
         "location": {
           "startingColumn": 30,
-          "startingLine": 395
+          "startingLine": 397
         }
       },
       {
@@ -15,7 +15,7 @@
         "key": "Drag a link from your browser address bar to start playback",
         "location": {
           "startingColumn": 30,
-          "startingLine": 399
+          "startingLine": 401
         }
       }
     ]

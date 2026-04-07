@@ -6,7 +6,7 @@
 	<integer>11</integer>
 	<key>logs</key>
 	<dict>
-		<key>7368C9B6-DAB3-4DE7-93F8-64C2EEB0A7BA</key>
+		<key>0BEFE34B-5BE8-4837-839A-5018C897D997</key>
 		<dict>
 			<key>className</key>
 			<string>IDECommandLineBuildLog</string>
@@ -15,7 +15,7 @@
 			<key>domainType</key>
 			<string>Xcode.IDEActivityLogDomainType.BuildLog</string>
 			<key>fileName</key>
-			<string>7368C9B6-DAB3-4DE7-93F8-64C2EEB0A7BA.xcactivitylog</string>
+			<string>0BEFE34B-5BE8-4837-839A-5018C897D997.xcactivitylog</string>
 			<key>hasPrimaryLog</key>
 			<true/>
 			<key>primaryObservable</key>
@@ -40,139 +40,13 @@
 			<key>signature</key>
 			<string>Building project YouTubePlayer with scheme YouTubePlayer and configuration Debug</string>
 			<key>timeStartedRecording</key>
-			<real>797126477.73063803</real>
+			<real>797218514.42488301</real>
 			<key>timeStoppedRecording</key>
-			<real>797126482.32137406</real>
+			<real>797218518.12490404</real>
 			<key>title</key>
 			<string>Building project YouTubePlayer with scheme YouTubePlayer and configuration Debug</string>
 			<key>uniqueIdentifier</key>
-			<string>7368C9B6-DAB3-4DE7-93F8-64C2EEB0A7BA</string>
-		</dict>
-		<key>B13FEAD3-A5E3-4927-ACB1-E08C3C6D73A6</key>
-		<dict>
-			<key>className</key>
-			<string>IDECommandLineBuildLog</string>
-			<key>documentTypeString</key>
-			<string>&lt;nil&gt;</string>
-			<key>domainType</key>
-			<string>Xcode.IDEActivityLogDomainType.BuildLog</string>
-			<key>fileName</key>
-			<string>B13FEAD3-A5E3-4927-ACB1-E08C3C6D73A6.xcactivitylog</string>
-			<key>hasPrimaryLog</key>
-			<true/>
-			<key>primaryObservable</key>
-			<dict>
-				<key>highLevelStatus</key>
-				<string>S</string>
-				<key>totalNumberOfAnalyzerIssues</key>
-				<integer>0</integer>
-				<key>totalNumberOfErrors</key>
-				<integer>0</integer>
-				<key>totalNumberOfTestFailures</key>
-				<integer>0</integer>
-				<key>totalNumberOfWarnings</key>
-				<integer>0</integer>
-			</dict>
-			<key>schemeIdentifier-containerName</key>
-			<string>YouTubePlayer project</string>
-			<key>schemeIdentifier-schemeName</key>
-			<string>YouTubePlayer</string>
-			<key>schemeIdentifier-sharedScheme</key>
-			<integer>1</integer>
-			<key>signature</key>
-			<string>Building project YouTubePlayer with scheme YouTubePlayer and configuration Debug</string>
-			<key>timeStartedRecording</key>
-			<real>797126580.03434706</real>
-			<key>timeStoppedRecording</key>
-			<real>797126583.01576805</real>
-			<key>title</key>
-			<string>Building project YouTubePlayer with scheme YouTubePlayer and configuration Debug</string>
-			<key>uniqueIdentifier</key>
-			<string>B13FEAD3-A5E3-4927-ACB1-E08C3C6D73A6</string>
-		</dict>
-		<key>D18D276D-C0B9-484D-ACB7-9CA00B7C794E</key>
-		<dict>
-			<key>className</key>
-			<string>IDECommandLineBuildLog</string>
-			<key>documentTypeString</key>
-			<string>&lt;nil&gt;</string>
-			<key>domainType</key>
-			<string>Xcode.IDEActivityLogDomainType.BuildLog</string>
-			<key>fileName</key>
-			<string>D18D276D-C0B9-484D-ACB7-9CA00B7C794E.xcactivitylog</string>
-			<key>hasPrimaryLog</key>
-			<true/>
-			<key>primaryObservable</key>
-			<dict>
-				<key>highLevelStatus</key>
-				<string>S</string>
-				<key>totalNumberOfAnalyzerIssues</key>
-				<integer>0</integer>
-				<key>totalNumberOfErrors</key>
-				<integer>0</integer>
-				<key>totalNumberOfTestFailures</key>
-				<integer>0</integer>
-				<key>totalNumberOfWarnings</key>
-				<integer>0</integer>
-			</dict>
-			<key>schemeIdentifier-containerName</key>
-			<string>YouTubePlayer project</string>
-			<key>schemeIdentifier-schemeName</key>
-			<string>YouTubePlayer</string>
-			<key>schemeIdentifier-sharedScheme</key>
-			<integer>1</integer>
-			<key>signature</key>
-			<string>Building project YouTubePlayer with scheme YouTubePlayer and configuration Debug</string>
-			<key>timeStartedRecording</key>
-			<real>797126302.03353095</real>
-			<key>timeStoppedRecording</key>
-			<real>797126307.85155797</real>
-			<key>title</key>
-			<string>Building project YouTubePlayer with scheme YouTubePlayer and configuration Debug</string>
-			<key>uniqueIdentifier</key>
-			<string>D18D276D-C0B9-484D-ACB7-9CA00B7C794E</string>
-		</dict>
-		<key>DCCED6EF-6703-47D6-A135-7FE81C91EAD4</key>
-		<dict>
-			<key>className</key>
-			<string>IDECommandLineBuildLog</string>
-			<key>documentTypeString</key>
-			<string>&lt;nil&gt;</string>
-			<key>domainType</key>
-			<string>Xcode.IDEActivityLogDomainType.BuildLog</string>
-			<key>fileName</key>
-			<string>DCCED6EF-6703-47D6-A135-7FE81C91EAD4.xcactivitylog</string>
-			<key>hasPrimaryLog</key>
-			<true/>
-			<key>primaryObservable</key>
-			<dict>
-				<key>highLevelStatus</key>
-				<string>S</string>
-				<key>totalNumberOfAnalyzerIssues</key>
-				<integer>0</integer>
-				<key>totalNumberOfErrors</key>
-				<integer>0</integer>
-				<key>totalNumberOfTestFailures</key>
-				<integer>0</integer>
-				<key>totalNumberOfWarnings</key>
-				<integer>0</integer>
-			</dict>
-			<key>schemeIdentifier-containerName</key>
-			<string>YouTubePlayer project</string>
-			<key>schemeIdentifier-schemeName</key>
-			<string>YouTubePlayer</string>
-			<key>schemeIdentifier-sharedScheme</key>
-			<integer>1</integer>
-			<key>signature</key>
-			<string>Building project YouTubePlayer with scheme YouTubePlayer and configuration Debug</string>
-			<key>timeStartedRecording</key>
-			<real>797126068.66770303</real>
-			<key>timeStoppedRecording</key>
-			<real>797126074.87427497</real>
-			<key>title</key>
-			<string>Building project YouTubePlayer with scheme YouTubePlayer and configuration Debug</string>
-			<key>uniqueIdentifier</key>
-			<string>DCCED6EF-6703-47D6-A135-7FE81C91EAD4</string>
+			<string>0BEFE34B-5BE8-4837-839A-5018C897D997</string>
 		</dict>
 	</dict>
 </dict>
