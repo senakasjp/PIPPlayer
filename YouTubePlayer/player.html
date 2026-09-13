@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; background: #000; overflow: hidden; }
+  #player { width: 100%; height: 100%; }
+  ::-webkit-scrollbar { display: none; }
+</style>
+</head>
+<body>
+  <!--
+    ClipFrame player host.
+
+    Hosts YouTube's OFFICIAL IFrame Player API (YT.Player). This page is the ONLY
+    thing allowed to render the actual video, exactly as YouTube serves it (ads
+    included, untouched). It does NOT block, skip, detect, strip, download, or
+    re-host anything. The native app drives playback solely through the documented
+    IFrame API methods exposed below, and reports state back over `playerBridge`.
+
+    The JS bridge is kept inline here. The page is loaded via
+    loadHTMLString(baseURL: https://www.youtube.com) so the IFrame API's postMessage
+    channel works in WKWebView. The 'origin' playerVar is NOT set: supplying
+    'https://www.youtube.com' while the page IS at that origin triggers YouTube's
+    self-embedding guard (error 152) for some videos. Omitting it lets the IFrame
+    API fall back to same-document postMessage, which works correctly.
+  -->
+  <div id="player"></div>
+  <script>
+    var player = null;
+    var playerReady = false;
+    var timer = null;
+    var currentVideoId = '';
+
+    // Queued load request that arrives before the player is ready.
+    var pending = null; // { id, start, autoplay }
+
+    function post(msg) {
+      if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.playerBridge) {
+        window.webkit.messageHandlers.playerBridge.postMessage(msg);
+      }
+    }
+
+    window.setNativeTransparentPlayerMode = function () {};
+
+    // Fill mode crops the video to cover the whole window (no letterboxing)
+    // by oversizing the iframe past the video's real aspect ratio and
+    // centering it, relying on the body's overflow:hidden to clip the
+    // excess. Disabled = default contain-fit iframe sizing (may letterbox).
+    var fillModeEnabled = true;
+    var contentAspectRatio = 16 / 9; // refined per-video via oEmbed below
+    window.setNativeFillPlayerWindow = function (enabled) {
+      fillModeEnabled = !!enabled;
+      layoutPlayerFrame();
+    };
+
+    // 16:9 is wrong for YouTube Shorts (9:16) and other non-standard uploads,
+    // so ask YouTube's no-auth oEmbed endpoint for this video's actual
+    // width/height instead of assuming. Same-origin fetch (page baseURL is
+    // https://www.youtube.com), so no CORS issue. Falls back silently to the
+    // 16:9 default on any error.
+    function fetchContentAspectRatio(id) {
+      fetch('https://www.youtube.com/oembed?format=json&url=' + encodeURIComponent('https://www.youtube.com/watch?v=' + id))
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (data && data.width && data.height && id === currentVideoId) {
+            contentAspectRatio = data.width / data.height;
+            layoutPlayerFrame();
+          }
+        })
+        .catch(function () {});
+    }
+
+    function layoutPlayerFrame() {
+      var iframe = player && player.getIframe ? player.getIframe() : null;
+      if (!iframe) return;
+      if (!fillModeEnabled) {
+        iframe.style.position = 'static';
+        iframe.style.left = iframe.style.top = '';
+        iframe.style.width = iframe.style.height = '100%';
+        return;
+      }
+      var w = window.innerWidth, h = window.innerHeight;
+      var fw, fh;
+      if (w / h > contentAspectRatio) { fw = w; fh = w / contentAspectRatio; }
+      else { fh = h; fw = h * contentAspectRatio; }
+      iframe.style.position = 'absolute';
+      iframe.style.width = fw + 'px';
+      iframe.style.height = fh + 'px';
+      iframe.style.left = ((w - fw) / 2) + 'px';
+      iframe.style.top = ((h - fh) / 2) + 'px';
+    }
+
+    window.addEventListener('resize', layoutPlayerFrame);
+
+    function safeTime() {
+      try { return (player && player.getCurrentTime) ? player.getCurrentTime() : 0; } catch (e) { return 0; }
+    }
+    function safeDuration() {
+      try { return (player && player.getDuration) ? player.getDuration() : 0; } catch (e) { return 0; }
+    }
+    function safeState() {
+      try { return (player && player.getPlayerState) ? player.getPlayerState() : -1; } catch (e) { return -1; }
+    }
+    function videoId() {
+      try { var d = player.getVideoData(); return (d && d.video_id) ? d.video_id : currentVideoId; } catch (e) { return currentVideoId; }
+    }
+    function videoTitle() {
+      try { var d = player.getVideoData(); return (d && d.title) ? d.title : ''; } catch (e) { return ''; }
+    }
+
+    function doLoad(id, start, autoplay) {
+      if (!playerReady || !player) { pending = { id: id, start: start, autoplay: autoplay }; return; }
+      if (autoplay) {
+        player.loadVideoById({ videoId: id, startSeconds: start || 0 });
+      } else {
+        // Do NOT autoplay until explicitly requested / view interaction.
+        player.cueVideoById({ videoId: id, startSeconds: start || 0 });
+      }
+    }
+
+    // ---- Documented IFrame Player API methods, called from Swift ----
+    window.ytLoad = function (id, start, autoplay) {
+      currentVideoId = id;
+      contentAspectRatio = 16 / 9;
+      fetchContentAspectRatio(id);
+      doLoad(id, start || 0, !!autoplay);
+    };
+    window.ytPlay = function () { try { if (player) player.playVideo(); } catch (e) {} };
+    window.ytPause = function () { try { if (player) player.pauseVideo(); } catch (e) {} };
+    window.ytSeek = function (seconds) { try { if (player) player.seekTo(seconds, true); } catch (e) {} };
+    window.ytSetVolume = function (v) { try { if (player) player.setVolume(v); } catch (e) {} };
+    window.ytGetState = function () { return safeState(); };
+
+    function startTimer() {
+      if (timer) return;
+      timer = setInterval(function () {
+        if (!playerReady || !player) return;
+        post({
+          event: 'time',
+          currentTime: safeTime(),
+          duration: safeDuration(),
+          state: safeState(),
+          videoId: videoId(),
+          title: videoTitle()
+        });
+      }, 1000);
+    }
+
+    function onReady() {
+      playerReady = true;
+      post({ event: 'ready' });
+      startTimer();
+      layoutPlayerFrame();
+      if (pending) { var p = pending; pending = null; doLoad(p.id, p.start, p.autoplay); }
+    }
+
+    function onStateChange(e) {
+      post({ event: 'state', state: e.data, currentTime: safeTime(), duration: safeDuration(), videoId: videoId(), title: videoTitle() });
+    }
+
+    function onError(e) {
+      post({ event: 'error', code: e.data });
+    }
+
+    // The IFrame API calls this global once the script has loaded.
+    function onYouTubeIframeAPIReady() {
+      player = new YT.Player('player', {
+        width: '100%',
+        height: '100%',
+        host: 'https://www.youtube-nocookie.com',
+        playerVars: {
+          'playsinline': 1
+        },
+        events: {
+          'onReady': onReady,
+          'onStateChange': onStateChange,
+          'onError': onError
+        }
+      });
+    }
+
+    (function loadAPI() {
+      var tag = document.createElement('script');
+      tag.src = 'https://www.youtube.com/iframe_api';
+      (document.head || document.documentElement).appendChild(tag);
+    })();
+  </script>
+</body>
+</html>

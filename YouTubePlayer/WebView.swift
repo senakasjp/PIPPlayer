@@ -137,7 +137,9 @@ final class DropReceiverView: NSView {
         if let strings = pasteboard.readObjects(forClasses: [NSString.self]) as? [String],
            let string = strings.first {
             let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? nil : trimmed
+            guard !trimmed.isEmpty else { return nil }
+            guard URL(string: trimmed) != nil else { return nil }
+            return trimmed
         }
         return nil
     }

@@ -5,7 +5,7 @@ struct ContentView: View {
     @State private var webView: WKWebView
     private let scriptHandler: YouTubeScriptMessageHandler
     @State private var isDropTargeted = false
-    @State private var statusMessage = "Drop a YouTube URL to play"
+    @State private var statusMessage = "Drop a streaming URL to play"
     @State private var isTransparent = true
     @State private var isAlwaysOnTop = true
     @State private var isEightyTransparency = false
@@ -15,6 +15,7 @@ struct ContentView: View {
     @State private var isFillPlayerWindowEnabled = false
     @State private var hoverMonitorTimer: Timer?
     @State private var historyNoticeClearTask: DispatchWorkItem?
+    @State private var statusMessageToken: UUID?
     private let playerWindowIdentifier = NSUserInterfaceItemIdentifier("YouTubePlayerWindow")
     private let playerWindowFrameKey = "playerWindowFrame"
     private let alwaysOnTopLevel = NSWindow.Level.statusBar
@@ -24,29 +25,54 @@ struct ContentView: View {
     private let initialSavedURL: URL?
     @State private var playbackPositions: [String: Double]
     @State private var currentVideoID: String?
+    @State private var currentSourceURL: String?
     @State private var pendingInitialURL: URL?
     @State private var window: NSWindow?
     private let windowCoordinator = PlayerWindowCoordinator()
 
+    // IFrame Player API state + native control bar state
+    // No default video — player initialises empty to avoid video-specific embed errors
+    // on startup. Content loads when the user drops/pastes a URL.
+    @State private var playerPageLoaded = false   // player.html has been loaded into the web view
+    @State private var playerReady = false        // YT.Player onReady has fired
+    @State private var pendingYouTubeID: String?  // video queued before the player was ready
+    @State private var pendingYouTubeStart: Double = 0
+    @State private var pendingYouTubeAutoplay = false
+    @State private var isYouTubeActive = false     // current media is a YouTube IFrame video
+    @State private var playerState: Int = -1       // YT.PlayerState: -1 unstarted, 0 ended, 1 playing, 2 paused, 3 buffering, 5 cued
+    @State private var playerCurrentTime: Double = 0
+    @State private var playerDuration: Double = 0
+    @State private var playerVolume: Double = 100
+    @State private var isScrubbing = false
+    @State private var currentVideoTitle: String = ""
+
     init() {
         scriptHandler = YouTubeScriptMessageHandler()
         let config = WKWebViewConfiguration()
+        // player.html is loaded with baseURL https://www.youtube.com so the IFrame
+        // API postMessage origin check passes (WKWebView requirement). No custom scheme
+        // or file:// load is used: both produce null/opaque origins that YouTube's embed
+        // server rejects (errors 153/145).
+        config.websiteDataStore = .default()
         config.allowsAirPlayForMediaPlayback = true
         config.mediaTypesRequiringUserActionForPlayback = []
+        config.preferences.javaScriptCanOpenWindowsAutomatically = true
+        config.defaultWebpagePreferences.allowsContentJavaScript = true
 
-        // CSS to hide scrollbars completely
+        // Injected into every frame on load — only resets scrollbars/margins so the
+        // player surface sits flush. It deliberately does NOT touch any YouTube player
+        // UI, overlays, end screens, or branding (.ytp-* etc.) — per YouTube's API ToS,
+        // the player is rendered exactly as YouTube serves it.
         let hideScrollbarsCSS = """
         ::-webkit-scrollbar { display: none !important; }
-        body { overflow: hidden !important; margin: 0 !important; }
-        html { overflow: hidden !important; }
-        #masthead-container { display: none !important; }
-        ytd-watch-flexy[theater] #player-theater-container.ytd-watch-flexy { max-width: 100% !important; width: 100% !important; }
+        html, body { overflow: hidden !important; margin: 0 !important; background: #000 !important; }
+        .ytp-subtitles-button { display: none !important; }
         """
 
         let script = WKUserScript(
             source: """
             var style = document.createElement('style');
-            style.textContent = '\(hideScrollbarsCSS)';
+            style.textContent = `\(hideScrollbarsCSS)`;
             document.head.appendChild(style);
             """,
             injectionTime: .atDocumentEnd,
@@ -62,8 +88,14 @@ struct ContentView: View {
                 const postProgress = () => {
                     const video = document.querySelector('video');
                     if (!video) { return; }
+                    const host = window.location.hostname.toLowerCase();
                     const params = new URLSearchParams(window.location.search);
-                    const videoId = params.get('v') || '';
+                    let videoId = '';
+                    if (host.includes('youtube.com') || host.includes('youtu.be') || host.includes('youtube-nocookie.com')) {
+                        videoId = params.get('v') || window.location.pathname.split('/').filter(Boolean).pop() || '';
+                    } else if (host === 'disneyplus.com' || host.endsWith('.disneyplus.com')) {
+                        videoId = 'disneyplus:' + (window.location.pathname || '/');
+                    }
                     if (!videoId) { return; }
                     const titleNode = document.querySelector('ytd-watch-metadata h1 yt-formatted-string');
                     const title = (titleNode && titleNode.textContent ? titleNode.textContent : document.title || '').trim();
@@ -96,221 +128,38 @@ struct ContentView: View {
             })();
             """,
             injectionTime: .atDocumentEnd,
-            forMainFrameOnly: true
-        )
-
-        let fillPlayerWindowScript = WKUserScript(
-            source: """
-            (function() {
-                const storageKey = 'nativeFillPlayerWindow';
-                const transparentPlayerStorageKey = 'nativeTransparentPlayerChrome';
-                const styleId = 'native-fill-player-window-style';
-                const transparentStyleId = 'native-transparent-player-style';
-                const className = 'native-fill-player-window';
-                const transparentClassName = 'native-transparent-player';
-                const css = `
-                html.${className}, body.${className} {
-                    overflow: hidden !important;
-                    background: #000 !important;
-                    --ytd-masthead-height: 0px !important;
-                    --ytd-toolbar-height: 0px !important;
-                }
-                html.${className} ytd-masthead,
-                body.${className} ytd-masthead,
-                html.${className} #masthead-container,
-                body.${className} #masthead-container,
-                html.${className} tp-yt-app-header-layout,
-                body.${className} tp-yt-app-header-layout {
-                    display: none !important;
-                }
-                html.${className} #secondary,
-                body.${className} #secondary,
-                html.${className} #below,
-                body.${className} #below,
-                html.${className} #related,
-                body.${className} #related,
-                html.${className} #comments,
-                body.${className} #comments,
-                html.${className} ytd-comments,
-                body.${className} ytd-comments,
-                html.${className} #chat,
-                body.${className} #chat {
-                    display: none !important;
-                }
-                html.${className} ytd-app,
-                body.${className} ytd-app,
-                html.${className} #page-manager,
-                body.${className} #page-manager,
-                html.${className} ytd-watch-flexy,
-                body.${className} ytd-watch-flexy,
-                html.${className} #primary,
-                body.${className} #primary,
-                html.${className} #primary-inner,
-                body.${className} #primary-inner,
-                html.${className} #columns,
-                body.${className} #columns,
-                html.${className} #contents,
-                body.${className} #contents {
-                    margin-top: 0 !important;
-                    padding-top: 0 !important;
-                    top: 0 !important;
-                }
-                html.${className} ytd-watch-flexy,
-                body.${className} ytd-watch-flexy {
-                    min-width: 100vw !important;
-                    min-height: 100vh !important;
-                    background: #000 !important;
-                }
-                html.${className} #player-theater-container,
-                body.${className} #player-theater-container,
-                html.${className} #full-bleed-container,
-                body.${className} #full-bleed-container,
-                html.${className} #player,
-                body.${className} #player,
-                html.${className} ytd-player,
-                body.${className} ytd-player,
-                html.${className} #movie_player,
-                body.${className} #movie_player,
-                html.${className} .html5-video-container,
-                body.${className} .html5-video-container,
-                html.${className} video,
-                body.${className} video {
-                    width: 100% !important;
-                    height: 100% !important;
-                    max-width: none !important;
-                    max-height: none !important;
-                }
-                html.${className} #player-theater-container,
-                body.${className} #player-theater-container,
-                html.${className} #full-bleed-container,
-                body.${className} #full-bleed-container,
-                html.${className} #player,
-                body.${className} #player,
-                html.${className} ytd-player,
-                body.${className} ytd-player,
-                html.${className} #movie_player,
-                body.${className} #movie_player {
-                    position: relative !important;
-                    inset: auto !important;
-                    margin: 0 !important;
-                    padding: 0 !important;
-                    background: #000 !important;
-                }
-                `;
-                const transparentCss = `
-                html.${transparentClassName}, body.${transparentClassName},
-                html.${transparentClassName} ytd-app, body.${transparentClassName} ytd-app,
-                html.${transparentClassName} #page-manager, body.${transparentClassName} #page-manager,
-                html.${transparentClassName} ytd-watch-flexy, body.${transparentClassName} ytd-watch-flexy,
-                html.${transparentClassName} #player, body.${transparentClassName} #player,
-                html.${transparentClassName} ytd-player, body.${transparentClassName} ytd-player,
-                html.${transparentClassName} #movie_player, body.${transparentClassName} #movie_player,
-                html.${transparentClassName} .html5-video-player, body.${transparentClassName} .html5-video-player,
-                html.${transparentClassName} .html5-video-container, body.${transparentClassName} .html5-video-container,
-                html.${transparentClassName} .ytp-gradient-top, body.${transparentClassName} .ytp-gradient-top,
-                html.${transparentClassName} .ytp-gradient-bottom, body.${transparentClassName} .ytp-gradient-bottom {
-                    background: transparent !important;
-                    box-shadow: none !important;
-                }
-                `;
-
-                function ensureStyle() {
-                    if (document.getElementById(styleId)) { return; }
-                    const style = document.createElement('style');
-                    style.id = styleId;
-                    style.textContent = css;
-                    (document.head || document.documentElement).appendChild(style);
-                }
-
-                function ensureTransparentStyle() {
-                    if (document.getElementById(transparentStyleId)) { return; }
-                    const style = document.createElement('style');
-                    style.id = transparentStyleId;
-                    style.textContent = transparentCss;
-                    (document.head || document.documentElement).appendChild(style);
-                }
-
-                function applyMode(enabled) {
-                    ensureStyle();
-                    const root = document.documentElement;
-                    const body = document.body;
-                    if (!root) { return; }
-                    root.classList.toggle(className, enabled);
-                    if (body) { body.classList.toggle(className, enabled); }
-                    if (enabled) {
-                        const moviePlayer = document.getElementById('movie_player');
-                        if (moviePlayer && typeof moviePlayer.toggleTheaterMode === 'function') {
-                            try {
-                                const isTheater = moviePlayer.classList.contains('ytp-size-button-large');
-                                if (!isTheater) { moviePlayer.toggleTheaterMode(); }
-                            } catch (e) {}
-                        }
-                        if (moviePlayer && typeof moviePlayer.setSize === 'function') {
-                            moviePlayer.setSize(window.innerWidth, window.innerHeight);
-                        }
-                    }
-                }
-
-                function applyTransparentPlayerMode(enabled) {
-                    ensureTransparentStyle();
-                    const root = document.documentElement;
-                    const body = document.body;
-                    if (!root) { return; }
-                    root.classList.toggle(transparentClassName, enabled);
-                    if (body) { body.classList.toggle(transparentClassName, enabled); }
-                }
-
-                function syncFromStorage() {
-                    applyMode(localStorage.getItem(storageKey) === '1');
-                    applyTransparentPlayerMode(localStorage.getItem(transparentPlayerStorageKey) === '1');
-                }
-
-                window.setNativeFillPlayerWindow = function(enabled) {
-                    localStorage.setItem(storageKey, enabled ? '1' : '0');
-                    applyMode(enabled);
-                    window.setTimeout(syncFromStorage, 150);
-                    window.setTimeout(syncFromStorage, 600);
-                    window.setTimeout(syncFromStorage, 1200);
-                };
-
-                window.setNativeTransparentPlayerMode = function(enabled) {
-                    localStorage.setItem(transparentPlayerStorageKey, enabled ? '1' : '0');
-                    applyTransparentPlayerMode(enabled);
-                    window.setTimeout(syncFromStorage, 150);
-                };
-
-                syncFromStorage();
-                document.addEventListener('DOMContentLoaded', syncFromStorage, { once: false });
-                window.addEventListener('resize', syncFromStorage);
-                window.addEventListener('yt-navigate-finish', syncFromStorage);
-            })();
-            """,
-            injectionTime: .atDocumentEnd,
+            // Only non-YouTube pages (e.g. Disney+) are loaded directly into the main
+            // frame and tracked this way. YouTube playback runs through the bundled
+            // IFrame Player API page and reports progress over `playerBridge` instead.
             forMainFrameOnly: true
         )
 
         config.userContentController.addUserScript(script)
         config.userContentController.addUserScript(progressTrackingScript)
-        config.userContentController.addUserScript(fillPlayerWindowScript)
         config.userContentController.add(scriptHandler, name: "videoProgress")
+        config.userContentController.add(scriptHandler, name: "playerBridge")
 
         initialSavedURL = UserDefaults.standard.string(forKey: lastURLKey).flatMap { URL(string: $0) }
         let savedPositions = UserDefaults.standard.dictionary(forKey: lastPlaybackPositionsKey) as? [String: Double] ?? [:]
         _playbackPositions = State(initialValue: savedPositions)
         _currentVideoID = State(initialValue: nil)
+        _currentSourceURL = State(initialValue: initialSavedURL?.absoluteString)
         _pendingInitialURL = State(initialValue: initialSavedURL)
+        _statusMessageToken = State(initialValue: nil)
 
         let wv = WKWebView(frame: .zero, configuration: config)
         wv.customUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
         wv.setValue(false, forKey: "drawsBackground")
+        wv.allowsBackForwardNavigationGestures = true
         scriptHandler.onPageReady = { [weak wv] in
             DispatchQueue.main.async {
                 guard let wv else { return }
-                let enabled = UserDefaults.standard.bool(forKey: "settings.fillPlayerWindowEnabled")
+                let enabled = AppSettings.shared.fillPlayerWindowEnabled
                 wv.evaluateJavaScript("window.setNativeFillPlayerWindow && window.setNativeFillPlayerWindow(\(enabled ? "true" : "false"));")
             }
         }
         wv.navigationDelegate = scriptHandler
+        wv.uiDelegate = scriptHandler
 
         _webView = State(initialValue: wv)
 
@@ -318,6 +167,9 @@ struct ContentView: View {
             _statusMessage = State(initialValue: "")
         }
     }
+
+    // Bars are visible when hovered (or while the scrub slider is active).
+    private var barsVisible: Bool { (isHovering || isScrubbing) && isYouTubeActive }
 
     var body: some View {
         ZStack {
@@ -327,7 +179,7 @@ struct ContentView: View {
             WebView(
                 webView: webView,
                 onDrop: { droppedURL in
-                    loadYouTubeURL(droppedURL)
+                    loadStreamingURL(droppedURL)
                 },
                 onTargetedChange: { isTargeted in
                     DispatchQueue.main.async {
@@ -338,77 +190,70 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .opacity(contentOpacity)
 
-            VStack {
-                HStack {
-                    if isFillPlayerWindowEnabled {
-                        Button {
-                            setFillPlayerWindow(to: false)
-                            AppSettings.shared.fillPlayerWindowEnabled = false
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundColor(.white.opacity(0.9))
-                                .padding(6)
-                                .background(Color.black.opacity(0.45))
-                                .clipShape(Circle())
-                        }
-                        .buttonStyle(.plain)
-                    }
-
-                    Spacer()
-                }
-                Spacer()
-            }
-            .padding(.top, 10)
-            .padding(.leading, 10)
-
             if statusMessage != "" {
                 VStack {
                     Spacer()
                     Text(statusMessage)
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundColor(.white)
-                        .padding()
-                        .background(Color.black.opacity(0.7))
-                        .cornerRadius(8)
-                        .padding()
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(.thinMaterial, in: Capsule())
+                        .shadow(color: .black.opacity(0.35), radius: 10, y: 2)
+                        .padding(.bottom, 22)
                 }
+                .transition(.opacity.animation(.easeInOut(duration: 0.18)))
             }
 
             if isDropTargeted {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .fill(Color.black.opacity(0.55))
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .fill(.ultraThinMaterial)
 
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
                         .strokeBorder(
                             LinearGradient(
-                                colors: [Color.red.opacity(0.95), Color.white.opacity(0.9)],
+                                colors: [Color.red.opacity(0.9), Color.red.opacity(0.25)],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
                             ),
-                            lineWidth: 3
+                            lineWidth: 2
                         )
 
-                    VStack(spacing: 10) {
-                        Image(systemName: "link.circle.fill")
-                            .font(.system(size: 42, weight: .semibold))
-                            .foregroundStyle(Color.white, Color.red.opacity(0.95))
+                    VStack(spacing: 14) {
+                        ZStack {
+                            Circle()
+                                .fill(Color.red.opacity(0.18))
+                                .frame(width: 76, height: 76)
+                            Image(systemName: "play.fill")
+                                .font(.system(size: 30, weight: .semibold))
+                                .foregroundColor(.white)
+                        }
 
-                        Text("Drop YouTube URL Here")
-                            .font(.system(size: 22, weight: .bold))
+                        Text("Drop URL to Play")
+                            .font(.system(size: 20, weight: .semibold))
                             .foregroundColor(.white)
 
-                        Text("Drag a link from your browser address bar to start playback")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(.white.opacity(0.82))
-                            .multilineTextAlignment(.center)
+                        Text("YouTube · Disney+")
+                            .font(.system(size: 13, weight: .regular))
+                            .foregroundColor(.white.opacity(0.6))
                     }
-                    .padding(28)
+                    .padding(36)
                 }
-                .padding(26)
+                .padding(28)
                 .allowsHitTesting(false)
-                .transition(.opacity)
+                .transition(.opacity.animation(.easeInOut(duration: 0.15)))
             }
+
+            // Hover-only overlay bars — top title strip + bottom controls.
+            // Visible only while the mouse is over the window (or scrubbing).
+            VStack {
+                Spacer()
+                playerControlBar
+            }
+            .opacity(barsVisible && !isTransparent ? 1 : 0)
+            .animation(.easeInOut(duration: 0.18), value: barsVisible)
+            .allowsHitTesting(barsVisible && !isTransparent)
         }
         .onHover { hovering in
             isHovering = hovering
@@ -416,9 +261,6 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .openURL)) { _ in
             promptForURL()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .toggleTransparency)) { _ in
-            toggleTransparency()
         }
         .onReceive(NotificationCenter.default.publisher(for: .toggleOpacity)) { _ in
             toggleOpacity()
@@ -451,9 +293,12 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .openRecentVideo)) { notification in
             guard let videoID = notification.userInfo?["videoID"] as? String else { return }
             let time = notification.userInfo?["time"] as? Double ?? 0
-            playRecentVideo(videoID: videoID, startTime: time)
+            let sourceURL = notification.userInfo?["sourceURL"] as? String
+            settings.pendingPlaybackRequest = nil
+            playRecentVideo(videoID: videoID, startTime: time, sourceURL: sourceURL)
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
+            flushPlaybackPositionToDefaults()
             persistCurrentPlaybackPosition()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
@@ -465,14 +310,38 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { notification in
             guard let closingWindow = notification.object as? NSWindow, closingWindow == getWindow() else { return }
+            flushPlaybackPositionToDefaults()
             persistLastOpenedVideoFallback()
             pauseAndPersistCurrentPlayback()
             window = nil
         }
         .onAppear {
-            // Set up the progress callback
+            // Progress callback for non-YouTube (Disney+) pages.
             scriptHandler.onProgress = { videoId, time, title in
                 updatePlaybackPosition(videoID: videoId, time: time, title: title)
+            }
+            // IFrame Player API bridge callbacks.
+            scriptHandler.onPlayerReady = { handlePlayerReady() }
+            scriptHandler.onPlayerStateChange = { state, time, duration in
+                DispatchQueue.main.async {
+                    playerState = state
+                    if duration > 0 { playerDuration = duration }
+                    if !isScrubbing { playerCurrentTime = time }
+                }
+            }
+            scriptHandler.onPlayerError = { message in
+                DispatchQueue.main.async { setStatusMessage(message, clearAfter: 6) }
+            }
+            scriptHandler.onPlayerTick = { videoId, time, duration, title, state in
+                DispatchQueue.main.async {
+                    playerState = state
+                    if duration > 0 { playerDuration = duration }
+                    if !isScrubbing { playerCurrentTime = time }
+                    if !title.isEmpty { currentVideoTitle = title }
+                    if !videoId.isEmpty, duration > 0, (state == 1 || state == 2), time > 0 {
+                        updatePlaybackPosition(videoID: videoId, time: time, title: title.isEmpty ? nil : title)
+                    }
+                }
             }
 
             scheduleWindowSetup()
@@ -483,9 +352,15 @@ struct ContentView: View {
             setHoverTransparency(to: settings.hoverTransparencyEnabled)
             setFillPlayerWindow(to: settings.fillPlayerWindowEnabled)
             setLockAspectRatio16x9(to: settings.lockAspectRatio16x9Enabled)
-            if let url = pendingInitialURL {
+            if let request = settings.consumePendingPlaybackRequest() {
+                playRecentVideo(videoID: request.videoID, startTime: request.time, sourceURL: request.sourceURL)
+            } else if let url = pendingInitialURL {
                 pendingInitialURL = nil
-                loadYouTubeURL(url.absoluteString, rememberAsLast: false)
+                loadStreamingURL(url.absoluteString, rememberAsLast: false)
+            } else {
+                // Nothing to restore: pre-load the IFrame player shell (no video) so
+                // it's ready the moment the user drops a URL.
+                loadPlayerPage()
             }
         }
         .onDisappear {
@@ -493,28 +368,113 @@ struct ContentView: View {
             hoverMonitorTimer?.invalidate()
             hoverMonitorTimer = nil
         }
+
     }
 
-    func loadYouTubeURL(_ urlString: String, rememberAsLast: Bool = true) {
-        if let videoID = URLHelper.extractVideoID(from: urlString) {
-            let savedTime = playbackPositions[videoID]
+    private var playerTopBar: some View {
+        HStack {
+            Spacer(minLength: 0)
+            Text(currentVideoTitle)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(.white.opacity(0.85))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .padding(.horizontal, 16)
+            Spacer(minLength: 0)
+        }
+        .frame(height: 36)
+        .background(
+            LinearGradient(
+                colors: [.black.opacity(0.55), .clear],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        )
+    }
+
+    private var playerControlBar: some View {
+        HStack(spacing: 12) {
+            Button(action: playerTogglePlayPause) {
+                Image(systemName: playerState == 1 ? "pause.fill" : "play.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                    .frame(width: 22)
+            }
+            .buttonStyle(.plain)
+            .help(playerState == 1 ? "Pause" : "Play")
+
+            Text(AppSettings.formatPlaybackTime(playerCurrentTime))
+                .font(.system(size: 11, weight: .regular).monospacedDigit())
+                .foregroundColor(.secondary)
+                .frame(width: 52, alignment: .trailing)
+
+            Slider(
+                value: Binding(
+                    get: { min(playerCurrentTime, max(playerDuration, 0.1)) },
+                    set: { playerCurrentTime = $0 }
+                ),
+                in: 0...max(playerDuration, 0.1),
+                onEditingChanged: { editing in
+                    isScrubbing = editing
+                    if !editing { playerSeek(to: playerCurrentTime) }
+                }
+            )
+
+            Text(AppSettings.formatPlaybackTime(playerDuration))
+                .font(.system(size: 11, weight: .regular).monospacedDigit())
+                .foregroundColor(.secondary)
+                .frame(width: 52, alignment: .leading)
+
+            Image(systemName: "speaker.wave.2.fill")
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
+            Slider(
+                value: Binding(
+                    get: { playerVolume },
+                    set: { playerSetVolume($0) }
+                ),
+                in: 0...100
+            )
+            .frame(width: 80)
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 40)
+        .background(
+            LinearGradient(
+                colors: [.clear, .black.opacity(0.55)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        )
+    }
+
+    func loadStreamingURL(_ urlString: String, rememberAsLast: Bool = true) {
+        let initialMedia = StreamingProviderRegistry.shared.resolve(urlString)
+        if let mediaID = initialMedia?.mediaID {
+            let savedTime = playbackPositions[mediaID]
             let startTime = (savedTime ?? 0) >= 1 ? Int(savedTime ?? 0) : nil
-            loadVideo(videoID: videoID, startTime: startTime.map(Double.init) ?? 0, rememberAsLast: rememberAsLast)
+            let media = StreamingProviderRegistry.shared.resolve(urlString, startTime: startTime) ?? initialMedia
+            if let media {
+                loadMedia(media, startTime: startTime.map(Double.init) ?? 0, rememberAsLast: rememberAsLast)
+            }
         } else {
             DispatchQueue.main.async {
-                statusMessage = "Invalid YouTube URL"
+                statusMessage = "Invalid streaming URL"
             }
         }
     }
 
+    func loadYouTubeURL(_ urlString: String, rememberAsLast: Bool = true) {
+        loadStreamingURL(urlString, rememberAsLast: rememberAsLast)
+    }
+
     func promptForURL() {
         let alert = NSAlert()
-        alert.messageText = "Open YouTube URL"
-        alert.informativeText = "Enter a YouTube video URL:"
+        alert.messageText = "Open Streaming URL"
+        alert.informativeText = "Enter a YouTube or Disney+ URL:"
         alert.alertStyle = .informational
 
         let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 24))
-        textField.placeholderString = "https://youtube.com/watch?v=..."
+        textField.placeholderString = "https://youtube.com/watch?v=... or https://www.disneyplus.com/..."
         alert.accessoryView = textField
 
         alert.addButton(withTitle: "Open")
@@ -522,39 +482,158 @@ struct ContentView: View {
 
         if alert.runModal() == .alertFirstButtonReturn {
             let urlString = textField.stringValue
-            loadYouTubeURL(urlString)
+            loadStreamingURL(urlString)
         }
     }
 
-    func playRecentVideo(videoID: String, startTime: Double) {
+    func playRecentVideo(videoID: String, startTime: Double, sourceURL: String? = nil) {
+        if let sourceURL,
+           StreamingProviderRegistry.shared.resolves(sourceURL, to: videoID),
+           let media = StreamingProviderRegistry.shared.resolve(sourceURL, startTime: Int(startTime.rounded())) {
+            loadMedia(media, startTime: startTime, rememberAsLast: true)
+            return
+        }
         loadVideo(videoID: videoID, startTime: startTime, rememberAsLast: true)
     }
 
     func loadVideo(videoID: String, startTime: Double, rememberAsLast: Bool) {
+        guard let url = StreamingProviderRegistry.shared.playbackURL(for: videoID, startTime: adjustedResumeStartTime(from: startTime)) else { return }
+        let media = StreamingMedia(
+            providerID: videoID.hasPrefix("disneyplus:") ? "disneyplus" : "youtube",
+            providerName: StreamingProviderRegistry.shared.providerName(for: videoID),
+            mediaID: videoID,
+            playbackURL: url,
+            defaultTitle: StreamingProviderRegistry.shared.providerName(for: videoID) + " Video",
+            canResumeWithURLParameter: !videoID.hasPrefix("disneyplus:")
+        )
+        loadMedia(media, startTime: startTime, rememberAsLast: rememberAsLast)
+    }
+
+    func loadMedia(_ media: StreamingMedia, startTime: Double, rememberAsLast: Bool) {
         if rememberAsLast {
-            settings.allowRecording(videoID: videoID)
+            settings.allowRecording(videoID: media.mediaID)
         }
-        let start = adjustedResumeStartTime(from: startTime)
-        let watchURL = URLHelper.makeWatchURL(videoID: videoID, startTime: start > 0 ? start : nil)
         DispatchQueue.main.async {
-            if loadedVideoID() == videoID {
-                currentVideoID = videoID
-                applyHistoryNotice(historyEntry(for: videoID))
+            // For YouTube, use the canonical watch URL as the source reference so
+            // URL-based history and ID extraction continue to work correctly.
+            let sourceURL: String
+            if media.providerID == "youtube" {
+                sourceURL = "https://www.youtube.com/watch?v=\(media.mediaID)"
+            } else {
+                sourceURL = media.playbackURL.absoluteString
+            }
+
+            if currentVideoID == media.mediaID {
+                currentVideoID = media.mediaID
+                currentSourceURL = sourceURL
+                applyHistoryNotice(historyEntry(for: media.mediaID))
                 if rememberAsLast {
-                    UserDefaults.standard.set(watchURL, forKey: lastURLKey)
+                    UserDefaults.standard.set(sourceURL, forKey: lastURLKey)
                 }
                 return
             }
-            if let url = URL(string: watchURL) {
-                let historyEntry = historyEntry(for: videoID)
-                currentVideoID = videoID
-                webView.load(URLRequest(url: url))
-                applyHistoryNotice(historyEntry)
-                if rememberAsLast {
-                    UserDefaults.standard.set(watchURL, forKey: lastURLKey)
-                }
+            let historyEntry = historyEntry(for: media.mediaID)
+            currentVideoID = media.mediaID
+            currentSourceURL = sourceURL
+
+            if media.providerID == "youtube" {
+                // Render through YouTube's official IFrame Player API (player.html),
+                // never by loading the youtube.com/watch page directly.
+                statusMessage = ""
+                loadYouTube(id: media.mediaID, start: Double(adjustedResumeStartTime(from: startTime)), autoplay: true)
+            } else {
+                // Non-YouTube providers (e.g. Disney+) load their page directly.
+                isYouTubeActive = false
+                playerPageLoaded = false
+                playerReady = false
+                webView.load(URLRequest(url: media.playbackURL))
+            }
+
+            applyHistoryNotice(historyEntry)
+            if rememberAsLast {
+                UserDefaults.standard.set(sourceURL, forKey: lastURLKey)
             }
         }
+    }
+
+    // MARK: - IFrame Player API
+
+    /// Loads player.html with baseURL https://www.youtube.com so YouTube's
+    /// embed server accepts the origin and the IFrame API postMessage channel works.
+    private func loadPlayerPage() {
+        guard let url = Bundle.main.url(forResource: "player", withExtension: "html"),
+              let html = try? String(contentsOf: url, encoding: .utf8) else {
+            statusMessage = "Player page missing"
+            return
+        }
+        playerReady = false
+        playerPageLoaded = true
+        webView.loadHTMLString(html, baseURL: URL(string: "https://example.com"))
+    }
+
+    private func ensurePlayerPage() {
+        if !playerPageLoaded {
+            loadPlayerPage()
+        }
+    }
+
+    /// Routes a YouTube video to the IFrame player, queuing it if the player
+    /// isn't ready yet. Never autoplays until the player page is mounted/ready.
+    private func loadYouTube(id: String, start: Double, autoplay: Bool) {
+        isYouTubeActive = true
+        ensurePlayerPage()
+        if playerReady {
+            evaluatePlayer("window.ytLoad(\(jsString(id)), \(Int(start)), \(autoplay));")
+        } else {
+            pendingYouTubeID = id
+            pendingYouTubeStart = start
+            pendingYouTubeAutoplay = autoplay
+        }
+    }
+
+    private func handlePlayerReady() {
+        playerReady = true
+        if let id = pendingYouTubeID {
+            pendingYouTubeID = nil
+            evaluatePlayer("window.ytLoad(\(jsString(id)), \(Int(pendingYouTubeStart)), \(pendingYouTubeAutoplay));")
+        }
+        if playerVolume != 100 {
+            evaluatePlayer("window.ytSetVolume(\(Int(playerVolume)));")
+        }
+    }
+
+    private func evaluatePlayer(_ script: String) {
+        DispatchQueue.main.async {
+            webView.evaluateJavaScript(script)
+        }
+    }
+
+    /// JSON-encodes a string for safe interpolation into evaluated JavaScript.
+    private func jsString(_ value: String) -> String {
+        let data = (try? JSONSerialization.data(withJSONObject: [value])) ?? Data("[\"\"]".utf8)
+        let array = String(data: data, encoding: .utf8) ?? "[\"\"]"
+        return String(array.dropFirst().dropLast()) // strip surrounding [ ]
+    }
+
+    // Native control-bar actions, all routed through documented IFrame API methods.
+    private func playerTogglePlayPause() {
+        guard isYouTubeActive else { return }
+        if playerState == 1 { // playing
+            evaluatePlayer("window.ytPause();")
+        } else {
+            evaluatePlayer("window.ytPlay();")
+        }
+    }
+
+    private func playerSeek(to seconds: Double) {
+        guard isYouTubeActive else { return }
+        evaluatePlayer("window.ytSeek(\(seconds));")
+    }
+
+    private func playerSetVolume(_ value: Double) {
+        playerVolume = value
+        guard isYouTubeActive else { return }
+        evaluatePlayer("window.ytSetVolume(\(Int(value)));")
     }
 
     private func adjustedResumeStartTime(from startTime: Double) -> Int {
@@ -591,13 +670,27 @@ struct ContentView: View {
         statusMessage = ""
     }
 
+    private func setStatusMessage(_ message: String, clearAfter: TimeInterval = 2) {
+        let token = UUID()
+        statusMessageToken = token
+        statusMessage = message
+        DispatchQueue.main.asyncAfter(deadline: .now() + clearAfter) {
+            if self.statusMessageToken == token {
+                self.statusMessage = ""
+            }
+        }
+    }
+
     private func showTemporaryHistoryNotice(_ message: String, duration: TimeInterval) {
+        historyNoticeClearTask?.cancel()
+        let token = UUID()
+        statusMessageToken = token
         statusMessage = message
         let clearTask = DispatchWorkItem {
-            if statusMessage == message {
-                statusMessage = ""
+            if self.statusMessageToken == token {
+                self.statusMessage = ""
             }
-            historyNoticeClearTask = nil
+            self.historyNoticeClearTask = nil
         }
         historyNoticeClearTask = clearTask
         DispatchQueue.main.asyncAfter(deadline: .now() + duration, execute: clearTask)
@@ -622,6 +715,16 @@ struct ContentView: View {
             return
         }
         applyWindowConfiguration(window)
+
+        // Default to a small 16:9 window if no saved frame exists
+        if UserDefaults.standard.string(forKey: playerWindowFrameKey) == nil,
+           let screen = window.screen ?? NSScreen.main {
+            let w: CGFloat = 1024
+            let h: CGFloat = 576
+            let x = screen.visibleFrame.midX - w / 2
+            let y = screen.visibleFrame.midY - h / 2
+            window.setFrame(NSRect(x: x, y: y, width: w, height: h), display: false)
+        }
 
         // Start opaque and clickable
         window.alphaValue = 1.0
@@ -703,22 +806,17 @@ struct ContentView: View {
             settings.hoverTransparencyEnabled = isTransparent
             if isTransparent {
                 // In transparent mode, window responds to hover
-                statusMessage = "Hover mode enabled"
                 // Reset to opaque until hover
                 contentOpacity = 1.0
                 window.ignoresMouseEvents = false
                 ensureWindowFront(window)
+                setStatusMessage("Hover mode enabled")
             } else {
                 // Always opaque and clickable
                 contentOpacity = 1.0
                 window.ignoresMouseEvents = false
                 ensureWindowFront(window)
-                statusMessage = "Hover mode disabled"
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                if statusMessage == "Hover mode enabled" || statusMessage == "Hover mode disabled" {
-                    statusMessage = ""
-                }
+                setStatusMessage("Hover mode disabled")
             }
         }
     }
@@ -729,12 +827,7 @@ struct ContentView: View {
             guard let window = getWindow() else { return }
             applyAlwaysOnTopState(window)
             if enabled { ensureWindowFront(window) }
-            statusMessage = enabled ? "Always on top enabled" : "Always on top disabled"
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                if statusMessage == "Always on top enabled" || statusMessage == "Always on top disabled" {
-                    statusMessage = ""
-                }
-            }
+            setStatusMessage(enabled ? "Always on top enabled" : "Always on top disabled")
         }
     }
 
@@ -744,6 +837,8 @@ struct ContentView: View {
             isDimmed.toggle()
             isEightyTransparency = false
             isTransparent = false
+            settings.eightyTransparencyEnabled = false
+            settings.hoverTransparencyEnabled = false
 
             // Dim to 25% or restore to fully opaque; keep clicks enabled
             let newOpacity: Double = isDimmed ? 0.25 : 1.0
@@ -752,12 +847,7 @@ struct ContentView: View {
             applyTransparentWindowAppearance(window, isFullyTransparent: newOpacity == 0)
             applyTransparentSurfaceMode()
 
-            statusMessage = isDimmed ? "Opacity 25%" : "Opacity 100%"
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                if statusMessage == "Opacity 25%" || statusMessage == "Opacity 100%" {
-                    statusMessage = ""
-                }
-            }
+            setStatusMessage(isDimmed ? "Opacity 25%" : "Opacity 100%")
         }
     }
 
@@ -776,12 +866,7 @@ struct ContentView: View {
             applyTransparentSurfaceMode()
             ensureWindowFront(window)
 
-            statusMessage = enabled ? "Transparency 80% enabled" : "Transparency reset"
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                if statusMessage == "Transparency 80% enabled" || statusMessage == "Transparency reset" {
-                    statusMessage = ""
-                }
-            }
+            setStatusMessage(enabled ? "Transparency 80% enabled" : "Transparency reset")
         }
     }
 
@@ -795,22 +880,17 @@ struct ContentView: View {
                 contentOpacity = isHovering ? 0.0 : 1.0
                 window.ignoresMouseEvents = isHovering
                 applyTransparentWindowAppearance(window, isFullyTransparent: isHovering)
-                statusMessage = "Hover mode enabled"
+                setStatusMessage("Hover mode enabled")
             } else {
                 stopHoverMonitor()
                 isHovering = false
                 contentOpacity = 1.0
                 window.ignoresMouseEvents = false
                 applyTransparentWindowAppearance(window, isFullyTransparent: false)
-                statusMessage = "Hover mode disabled"
+                setStatusMessage("Hover mode disabled")
             }
             applyTransparentSurfaceMode()
             ensureWindowFront(window)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                if statusMessage == "Hover mode enabled" || statusMessage == "Hover mode disabled" {
-                    statusMessage = ""
-                }
-            }
         }
     }
 
@@ -819,12 +899,7 @@ struct ContentView: View {
         DispatchQueue.main.async {
             let script = "window.setNativeFillPlayerWindow && window.setNativeFillPlayerWindow(\(enabled ? "true" : "false"));"
             webView.evaluateJavaScript(script)
-            statusMessage = enabled ? "Fill player window enabled" : "Fill player window disabled"
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                if statusMessage == "Fill player window enabled" || statusMessage == "Fill player window disabled" {
-                    statusMessage = ""
-                }
-            }
+            setStatusMessage(enabled ? "Fill player window enabled" : "Fill player window disabled")
         }
     }
 
@@ -835,12 +910,7 @@ struct ContentView: View {
             if enabled {
                 windowCoordinator.applyLockedAspectRatio(to: window)
             }
-            statusMessage = enabled ? "16:9 resize lock enabled" : "16:9 resize lock disabled"
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                if statusMessage == "16:9 resize lock enabled" || statusMessage == "16:9 resize lock disabled" {
-                    statusMessage = ""
-                }
-            }
+            setStatusMessage(enabled ? "16:9 resize lock enabled" : "16:9 resize lock disabled")
         }
     }
 
@@ -854,11 +924,15 @@ struct ContentView: View {
     private func updatePlaybackPosition(videoID: String, time: Double, title: String?) {
         DispatchQueue.main.async {
             currentVideoID = videoID
+            if let pageURL = webView.url?.absoluteString,
+               StreamingProviderRegistry.shared.resolves(pageURL, to: videoID) {
+                currentSourceURL = pageURL
+            }
             playbackPositions[videoID] = time
             UserDefaults.standard.set(playbackPositions, forKey: lastPlaybackPositionsKey)
-            let lastWatchURL = URLHelper.makeWatchURL(videoID: videoID, startTime: Optional<Int>.none)
+            let lastWatchURL = currentSourceURL ?? URLHelper.makeWatchURL(videoID: videoID, startTime: Optional<Int>.none)
             UserDefaults.standard.set(lastWatchURL, forKey: lastURLKey)
-            AppSettings.shared.recordRecentVideo(videoID: videoID, title: title, position: time)
+            AppSettings.shared.recordRecentVideo(videoID: videoID, title: title, position: time, sourceURL: lastWatchURL)
         }
     }
 
@@ -880,13 +954,28 @@ struct ContentView: View {
     private func persistLastOpenedVideoFallback() {
         guard let videoID = activeVideoID() else { return }
         let savedTime = playbackPositions[videoID].flatMap { $0 >= 1 ? Int($0.rounded()) : nil }
-        let watchURL = URLHelper.makeWatchURL(videoID: videoID, startTime: savedTime)
+        let watchURL = currentSourceURL ?? URLHelper.makeWatchURL(videoID: videoID, startTime: savedTime)
         UserDefaults.standard.set(watchURL, forKey: lastURLKey)
     }
 
+    // Synchronous Swift-side flush — called before any async JS on close/quit so the
+    // last known position is guaranteed on disk even if the WKWebView tears down first.
+    private func flushPlaybackPositionToDefaults() {
+        UserDefaults.standard.set(playbackPositions, forKey: lastPlaybackPositionsKey)
+        if let videoID = activeVideoID() {
+            let savedTime = playbackPositions[videoID].flatMap { $0 >= 1 ? Int($0.rounded()) : nil }
+            let url = currentSourceURL ?? URLHelper.makeWatchURL(videoID: videoID, startTime: savedTime)
+            UserDefaults.standard.set(url, forKey: lastURLKey)
+        }
+        UserDefaults.standard.synchronize()
+    }
+
     private func pauseAndPersistCurrentPlayback() {
+        // For YouTube, pause through the IFrame API; for non-YouTube pages, pause the
+        // page's own <video> element (and flush its last reported position).
         let script = """
         (function() {
+            if (window.ytPause) { window.ytPause(); }
             window.nativePostPlaybackProgress && window.nativePostPlaybackProgress();
             const video = document.querySelector('video');
             if (video) {
@@ -937,10 +1026,10 @@ struct ContentView: View {
         window.identifier = playerWindowIdentifier
 
         if needsBaseSetup {
-            window.titlebarAppearsTransparent = false
+            window.titlebarAppearsTransparent = true
             window.titleVisibility = .hidden
             window.toolbarStyle = .unifiedCompact
-            window.styleMask.remove(.fullSizeContentView)
+            window.styleMask.insert(.fullSizeContentView)
             window.isOpaque = false
             window.backgroundColor = .clear
             window.isMovableByWindowBackground = false
@@ -994,6 +1083,8 @@ struct ContentView: View {
 
     private func isPlayerWindow(_ window: NSWindow) -> Bool {
         if window.identifier == playerWindowIdentifier { return true }
+        // Prefer the SwiftUI-assigned main-player window identifier before falling back to heuristics
+        if window.identifier == NSUserInterfaceItemIdentifier("main-player") { return true }
         let className = String(describing: type(of: window))
         if className.contains("StatusBarWindow") || className.contains("StatusItemWindow") { return false }
         if let contentView = window.contentView {
@@ -1028,23 +1119,103 @@ struct ContentView: View {
             }
         }
     }
+
 }
 
-final class YouTubeScriptMessageHandler: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
+final class YouTubeScriptMessageHandler: NSObject, WKScriptMessageHandler, WKNavigationDelegate, WKUIDelegate {
     var onProgress: ((String, Double, String?) -> Void)?
     var onPageReady: (() -> Void)?
 
+    // IFrame Player API bridge callbacks
+    var onPlayerReady: (() -> Void)?
+    var onPlayerStateChange: ((_ state: Int, _ time: Double, _ duration: Double) -> Void)?
+    var onPlayerTick: ((_ videoId: String, _ time: Double, _ duration: Double, _ title: String, _ state: Int) -> Void)?
+    var onPlayerError: ((_ message: String) -> Void)?
+
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        guard message.name == "videoProgress",
-              let body = message.body as? [String: Any],
-              let videoId = body["videoId"] as? String,
-              let currentTime = body["currentTime"] as? Double else { return }
-        let title = body["title"] as? String
-        onProgress?(videoId, currentTime, title)
+        switch message.name {
+        case "videoProgress":
+            guard let body = message.body as? [String: Any],
+                  let videoId = body["videoId"] as? String,
+                  let currentTime = body["currentTime"] as? Double else { return }
+            onProgress?(videoId, currentTime, body["title"] as? String)
+        case "playerBridge":
+            handlePlayerBridge(message.body)
+        default:
+            break
+        }
+    }
+
+    private func handlePlayerBridge(_ rawBody: Any) {
+        guard let body = rawBody as? [String: Any],
+              let event = body["event"] as? String else { return }
+        switch event {
+        case "ready":
+            onPlayerReady?()
+        case "state":
+            let state = body["state"] as? Int ?? -1
+            let time = body["currentTime"] as? Double ?? 0
+            let duration = body["duration"] as? Double ?? 0
+            onPlayerStateChange?(state, time, duration)
+        case "time":
+            let videoId = body["videoId"] as? String ?? ""
+            let time = body["currentTime"] as? Double ?? 0
+            let duration = body["duration"] as? Double ?? 0
+            let title = body["title"] as? String ?? ""
+            let state = body["state"] as? Int ?? -1
+            onPlayerTick?(videoId, time, duration, title, state)
+        case "error":
+            let code = body["code"] as? Int ?? -1
+            let message: String
+            switch code {
+            case 2:   message = "Invalid video ID"
+            case 5:   message = "Playback error (HTML5)"
+            case 100: message = "Video not found"
+            case 101, 150: message = "This video can't be embedded"
+            case 152: message = "Embed origin rejected"
+            case 153, 145: message = "Origin error — check embed setup"
+            default:  message = "Player error \(code)"
+            }
+            onPlayerError?(message)
+        default:
+            break
+        }
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         onPageReady?()
+    }
+
+    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        if navigationAction.targetFrame == nil, let url = navigationAction.request.url {
+            webView.load(URLRequest(url: url))
+            decisionHandler(.cancel)
+            return
+        }
+        decisionHandler(.allow)
+    }
+
+    func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
+        if let url = navigationAction.request.url {
+            webView.load(URLRequest(url: url))
+        }
+        return nil
+    }
+
+    func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping () -> Void) {
+        let alert = NSAlert()
+        alert.messageText = message
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+        completionHandler()
+    }
+
+    func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (Bool) -> Void) {
+        let alert = NSAlert()
+        alert.messageText = message
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Cancel")
+        completionHandler(alert.runModal() == .alertFirstButtonReturn)
     }
 }
 
@@ -1053,6 +1224,21 @@ final class PlayerWindowCoordinator: NSObject, NSWindowDelegate {
     var onFrameChanged: ((NSRect) -> Void)?
     private var isAdjustingFrame = false
 
+    // Corrects the proposed size before it's committed/painted, so interactive
+    // resizing (drag handles, or any resize that goes through AppKit's normal
+    // negotiation) never draws a wrong-aspect frame in the first place — this
+    // is what avoids the flicker a reactive (windowDidResize) fix causes.
+    func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {
+        guard lockAspectRatio16x9 else { return frameSize }
+        let contentSize = sender.contentRect(forFrameRect: NSRect(origin: .zero, size: frameSize)).size
+        guard contentSize.width > 0 else { return frameSize }
+        let targetContentSize = NSSize(width: contentSize.width, height: round(contentSize.width * 9.0 / 16.0))
+        return sender.frameRect(forContentRect: NSRect(origin: .zero, size: targetContentSize)).size
+    }
+
+    // Backstop for resizes that bypass windowWillResize entirely (e.g. an
+    // external window manager setting the frame directly). No-op when
+    // windowWillResize already applied the correct size.
     func windowDidResize(_ notification: Notification) {
         guard let window = notification.object as? NSWindow else { return }
         if lockAspectRatio16x9 {
@@ -1088,10 +1274,34 @@ final class PlayerWindowCoordinator: NSObject, NSWindowDelegate {
         adjustedFrame.origin.y += adjustedFrame.height - adjustedFrameSize.height
         adjustedFrame.size = adjustedFrameSize
 
+        // Applied synchronously (not deferred to the next run loop turn) so the
+        // correction lands before an external window manager (e.g. AeroSpace)
+        // re-asserts its own tile geometry in response to this same resize.
         isAdjustingFrame = true
-        DispatchQueue.main.async {
-            window.setFrame(adjustedFrame, display: true)
-            self.isAdjustingFrame = false
-        }
+        window.setFrame(adjustedFrame, display: true)
+        isAdjustingFrame = false
     }
+}
+
+/// Serves player.html from a custom `clipframe://` scheme so the page has a
+/// recognisable HTTPS-equivalent origin that YouTube's embed server accepts.
+/// Using file:// gives a null origin (error 153) and using youtube.com triggers
+/// the self-embedding block (error 152). A custom scheme avoids both.
+final class PlayerPageSchemeHandler: NSObject, WKURLSchemeHandler {
+    func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
+        guard let url = urlSchemeTask.request.url,
+              url.host == "localhost",
+              url.path == "/player.html",
+              let fileURL = Bundle.main.url(forResource: "player", withExtension: "html"),
+              let data = try? Data(contentsOf: fileURL) else {
+            urlSchemeTask.didFailWithError(URLError(.fileDoesNotExist))
+            return
+        }
+        let response = URLResponse(url: url, mimeType: "text/html", expectedContentLength: data.count, textEncodingName: "utf-8")
+        urlSchemeTask.didReceive(response)
+        urlSchemeTask.didReceive(data)
+        urlSchemeTask.didFinish()
+    }
+
+    func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {}
 }

@@ -9,10 +9,11 @@ struct RecentVideoItem: Codable, Identifiable, Hashable {
     var watchLaterStars: Int
     var isThumbsDown: Bool
     var watchNote: String
+    var sourceURL: String?
 
     var id: String { videoID }
 
-    init(videoID: String, title: String, lastPosition: Double, lastPlayedAt: Date, watchLaterStars: Int = 0, isThumbsDown: Bool = false, watchNote: String = "") {
+    init(videoID: String, title: String, lastPosition: Double, lastPlayedAt: Date, watchLaterStars: Int = 0, isThumbsDown: Bool = false, watchNote: String = "", sourceURL: String? = nil) {
         self.videoID = videoID
         self.title = title
         self.lastPosition = lastPosition
@@ -20,10 +21,11 @@ struct RecentVideoItem: Codable, Identifiable, Hashable {
         self.watchLaterStars = min(5, max(0, watchLaterStars))
         self.isThumbsDown = isThumbsDown
         self.watchNote = watchNote
+        self.sourceURL = sourceURL
     }
 
     private enum CodingKeys: String, CodingKey {
-        case videoID, title, lastPosition, lastPlayedAt, watchLaterStars, isThumbsDown, watchNote
+        case videoID, title, lastPosition, lastPlayedAt, watchLaterStars, isThumbsDown, watchNote, sourceURL
     }
 
     init(from decoder: Decoder) throws {
@@ -35,6 +37,7 @@ struct RecentVideoItem: Codable, Identifiable, Hashable {
         watchLaterStars = min(5, max(0, try container.decodeIfPresent(Int.self, forKey: .watchLaterStars) ?? 0))
         isThumbsDown = try container.decodeIfPresent(Bool.self, forKey: .isThumbsDown) ?? false
         watchNote = try container.decodeIfPresent(String.self, forKey: .watchNote) ?? ""
+        sourceURL = try container.decodeIfPresent(String.self, forKey: .sourceURL)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -46,6 +49,21 @@ struct RecentVideoItem: Codable, Identifiable, Hashable {
         try container.encode(min(5, max(0, watchLaterStars)), forKey: .watchLaterStars)
         try container.encode(isThumbsDown, forKey: .isThumbsDown)
         try container.encode(watchNote, forKey: .watchNote)
+        try container.encodeIfPresent(sourceURL, forKey: .sourceURL)
+    }
+}
+
+struct PlaybackRequest: Equatable {
+    let videoID: String
+    let time: Double
+    let sourceURL: String?
+
+    var userInfo: [String: Any] {
+        var info: [String: Any] = ["videoID": videoID, "time": time]
+        if let sourceURL {
+            info["sourceURL"] = sourceURL
+        }
+        return info
     }
 }
 
@@ -86,6 +104,8 @@ final class AppSettings: ObservableObject {
         }
     }
 
+    var pendingPlaybackRequest: PlaybackRequest?
+
     @Published var alwaysOnTopEnabled: Bool = true {
         didSet {
             guard oldValue != alwaysOnTopEnabled else { return }
@@ -110,7 +130,7 @@ final class AppSettings: ObservableObject {
         }
     }
 
-    @Published var fillPlayerWindowEnabled: Bool = false {
+    @Published var fillPlayerWindowEnabled: Bool = true {
         didSet {
             guard oldValue != fillPlayerWindowEnabled else { return }
             defaults.set(fillPlayerWindowEnabled, forKey: Keys.fillPlayerWindow)
@@ -118,7 +138,7 @@ final class AppSettings: ObservableObject {
         }
     }
 
-    @Published var lockAspectRatio16x9Enabled: Bool = false {
+    @Published var lockAspectRatio16x9Enabled: Bool = true {
         didSet {
             guard oldValue != lockAspectRatio16x9Enabled else { return }
             defaults.set(lockAspectRatio16x9Enabled, forKey: Keys.lockAspectRatio16x9)
@@ -140,29 +160,36 @@ final class AppSettings: ObservableObject {
         if defaults.object(forKey: Keys.hoverTransparency) != nil {
             hoverTransparencyEnabled = defaults.bool(forKey: Keys.hoverTransparency)
         }
-        if defaults.object(forKey: Keys.fillPlayerWindow) != nil {
-            fillPlayerWindowEnabled = defaults.bool(forKey: Keys.fillPlayerWindow)
+        // fillPlayerWindow and lockAspectRatio16x9 are permanently locked to true —
+        // do not restore stored values (a stale `false` from an old install would
+        // otherwise silently re-disable them on every launch).
+        if let data = defaults.data(forKey: Keys.recentVideos) {
+            do {
+                let decoded = try JSONDecoder().decode([RecentVideoItem].self, from: data)
+                recentVideos = normalizedVideos(decoded, maxCount: maxRecentVideos)
+            } catch {
+                print("[AppSettings] Failed to decode recentVideos: \(error.localizedDescription)")
+                defaults.removeObject(forKey: Keys.recentVideos)
+            }
         }
-        if defaults.object(forKey: Keys.lockAspectRatio16x9) != nil {
-            lockAspectRatio16x9Enabled = defaults.bool(forKey: Keys.lockAspectRatio16x9)
-        }
-        if let data = defaults.data(forKey: Keys.recentVideos),
-           let decoded = try? JSONDecoder().decode([RecentVideoItem].self, from: data) {
-            recentVideos = normalizedVideos(decoded, maxCount: maxRecentVideos)
-        }
-        if let data = defaults.data(forKey: Keys.watchHistoryVideos),
-           let decoded = try? JSONDecoder().decode([RecentVideoItem].self, from: data) {
-            watchHistoryVideos = normalizedVideos(decoded, maxCount: maxWatchHistoryVideos)
+        if let data = defaults.data(forKey: Keys.watchHistoryVideos) {
+            do {
+                let decoded = try JSONDecoder().decode([RecentVideoItem].self, from: data)
+                watchHistoryVideos = normalizedVideos(decoded, maxCount: maxWatchHistoryVideos)
+            } catch {
+                print("[AppSettings] Failed to decode watchHistoryVideos: \(error.localizedDescription)")
+                defaults.removeObject(forKey: Keys.watchHistoryVideos)
+            }
         }
         deletedRecentVideoIDs = Set(defaults.stringArray(forKey: Keys.deletedRecentVideoIDs) ?? [])
         deletedWatchHistoryVideoIDs = Set(defaults.stringArray(forKey: Keys.deletedWatchHistoryVideoIDs) ?? [])
     }
 
-    func recordRecentVideo(videoID: String, title: String?, position: Double) {
+    func recordRecentVideo(videoID: String, title: String?, position: Double, sourceURL: String? = nil) {
         let cleanedTitle = cleanedVideoTitle(title)
             ?? recentVideos.first(where: { $0.videoID == videoID })?.title
             ?? watchHistoryVideos.first(where: { $0.videoID == videoID })?.title
-            ?? "YouTube Video"
+            ?? StreamingProviderRegistry.shared.providerName(for: videoID) + " Video"
         let safePosition = max(0, position)
         let now = Date()
 
@@ -172,6 +199,7 @@ final class AppSettings: ObservableObject {
                 videoID: videoID,
                 title: cleanedTitle,
                 position: safePosition,
+                sourceURL: sourceURL,
                 playedAt: now,
                 maxCount: maxRecentVideos
             )
@@ -183,6 +211,7 @@ final class AppSettings: ObservableObject {
                 videoID: videoID,
                 title: cleanedTitle,
                 position: safePosition,
+                sourceURL: sourceURL,
                 playedAt: now,
                 maxCount: maxWatchHistoryVideos
             )
@@ -221,8 +250,20 @@ final class AppSettings: ObservableObject {
         }
     }
 
+    func requestPlayback(videoID: String, time: Double, sourceURL: String?) {
+        let request = PlaybackRequest(videoID: videoID, time: time, sourceURL: sourceURL)
+        pendingPlaybackRequest = request
+        NotificationCenter.default.post(name: .openRecentVideo, object: nil, userInfo: request.userInfo)
+    }
+
+    func consumePendingPlaybackRequest() -> PlaybackRequest? {
+        let request = pendingPlaybackRequest
+        pendingPlaybackRequest = nil
+        return request
+    }
+
     func setWatchLaterStars(videoID: String, stars: Int) {
-        let clamped = min(5, max(1, stars))
+        let clamped = min(5, max(0, stars))
         if let index = watchHistoryVideos.firstIndex(where: { $0.videoID == videoID }) {
             watchHistoryVideos[index].watchLaterStars = clamped
             watchHistoryVideos[index].isThumbsDown = false
@@ -303,6 +344,7 @@ final class AppSettings: ObservableObject {
         videoID: String,
         title: String,
         position: Double,
+        sourceURL: String?,
         playedAt: Date,
         maxCount: Int
     ) -> [RecentVideoItem] {
@@ -311,8 +353,9 @@ final class AppSettings: ObservableObject {
             updated[index].title = title
             updated[index].lastPosition = position
             updated[index].lastPlayedAt = playedAt
+            updated[index].sourceURL = sourceURL ?? updated[index].sourceURL
         } else {
-            updated.append(RecentVideoItem(videoID: videoID, title: title, lastPosition: position, lastPlayedAt: playedAt))
+            updated.append(RecentVideoItem(videoID: videoID, title: title, lastPosition: position, lastPlayedAt: playedAt, sourceURL: sourceURL))
         }
         updated.sort { $0.lastPlayedAt > $1.lastPlayedAt }
         if updated.count > maxCount {
@@ -333,6 +376,9 @@ final class AppSettings: ObservableObject {
                 }
                 existing.watchLaterStars = max(existing.watchLaterStars, video.watchLaterStars)
                 existing.isThumbsDown = existing.isThumbsDown || video.isThumbsDown
+                if video.sourceURL != nil {
+                    existing.sourceURL = video.sourceURL
+                }
                 byID[video.videoID] = existing
             } else {
                 byID[video.videoID] = video
@@ -390,15 +436,14 @@ struct WatchHistoryView: View {
                     ForEach(settings.watchHistoryVideos) { video in
                         VStack(alignment: .leading, spacing: 6) {
                             HStack(spacing: 10) {
-                                Button {
-                                    openWindow(id: "main-player")
-                                    NotificationCenter.default.post(name: .openRecentVideo, object: nil, userInfo: ["videoID": video.videoID, "time": video.lastPosition])
-                                } label: {
-                                    HStack(spacing: 10) {
-                                        AsyncImage(url: URL(string: "https://i.ytimg.com/vi/\(video.videoID)/mqdefault.jpg")) { image in
-                                            image
-                                                .resizable()
-                                                .scaledToFill()
+                Button {
+                    openVideo(video)
+                } label: {
+                    HStack(spacing: 10) {
+                        AsyncImage(url: StreamingProviderRegistry.shared.thumbnailURL(for: video.videoID)) { image in
+                            image
+                                .resizable()
+                                .scaledToFill()
                                         } placeholder: {
                                             Rectangle().fill(Color.gray.opacity(0.25))
                                         }
@@ -407,6 +452,7 @@ struct WatchHistoryView: View {
 
                                         VStack(alignment: .leading, spacing: 2) {
                                             Text(video.title)
+                                                .foregroundColor(.accentColor)
                                                 .lineLimit(2)
                                             Text("Resume at \(AppSettings.formatPlaybackTime(video.lastPosition))")
                                                 .font(.caption)
@@ -414,8 +460,10 @@ struct WatchHistoryView: View {
                                         }
                                         Spacer(minLength: 0)
                                     }
+                                    .contentShape(Rectangle())
                                 }
                                 .buttonStyle(.plain)
+                                .help("Open \(video.title)")
 
                                 Button {
                                     settings.setThumbsDown(videoID: video.videoID, isThumbsDown: !video.isThumbsDown)
@@ -469,6 +517,11 @@ struct WatchHistoryView: View {
             }
         }
         .frame(minWidth: 620, minHeight: 520)
+    }
+
+    private func openVideo(_ video: RecentVideoItem) {
+        openWindow(id: "main-player")
+        settings.requestPlayback(videoID: video.videoID, time: video.lastPosition, sourceURL: video.sourceURL)
     }
 
     private func toggleNotes(for videoID: String) {
@@ -553,10 +606,20 @@ struct PlayerCommands: Commands {
             }
             .keyboardShortcut("h", modifiers: [.command, .shift])
 
-            Toggle("Fill Player Window", isOn: $settings.fillPlayerWindowEnabled)
-                .keyboardShortcut("f", modifiers: [.command, .shift])
             Toggle("Lock 16:9 While Resizing", isOn: $settings.lockAspectRatio16x9Enabled)
         }
+    }
+}
+
+struct WindowCommandBridge: View {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .onReceive(NotificationCenter.default.publisher(for: .openWatchHistory)) { _ in
+                openWindow(id: "watch-history")
+            }
     }
 }
 
@@ -569,6 +632,7 @@ struct YouTubePlayerApp: App {
         Window("YouTube Player", id: "main-player") {
             ContentView()
                 .environmentObject(settings)
+                .background(WindowCommandBridge())
         }
         .commands {
             PlayerCommands(settings: settings)
@@ -577,6 +641,7 @@ struct YouTubePlayerApp: App {
         Window("Watch History", id: "watch-history") {
             WatchHistoryView()
                 .environmentObject(settings)
+                .background(WindowCommandBridge())
         }
     }
 }
@@ -589,7 +654,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var alwaysOnTopItem: NSMenuItem?
     private var eightyTransparencyItem: NSMenuItem?
     private var hoverTransparencyItem: NSMenuItem?
-    private var fillPlayerWindowItem: NSMenuItem?
     private var lockAspectRatio16x9Item: NSMenuItem?
     private var recentVideosItem: NSMenuItem?
     private var statisticsItem: NSMenuItem?
@@ -616,7 +680,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func setupMenu() {
         let menu = NSMenu()
 
-        menu.addItem(NSMenuItem(title: "Open URL...", action: #selector(openURL), keyEquivalent: "o"))
+        let openURLItem = NSMenuItem(title: "Open URL...", action: #selector(openURL), keyEquivalent: "o")
+        openURLItem.image = menuIcon("link")
+        menu.addItem(openURLItem)
+
+        let watchHistoryItem = NSMenuItem(title: "Open Watch History", action: #selector(openWatchHistory), keyEquivalent: "h")
+        watchHistoryItem.keyEquivalentModifierMask = [.command, .shift]
+        watchHistoryItem.image = menuIcon("clock.arrow.circlepath")
+        menu.addItem(watchHistoryItem)
+
         menu.addItem(NSMenuItem.separator())
         let hoverTransparency = NSMenuItem(title: "Hover Transparency", action: #selector(toggleHoverTransparency), keyEquivalent: "t")
         hoverTransparency.state = settings.hoverTransparencyEnabled ? .on : .off
@@ -632,12 +704,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         eightyTransparency.state = settings.eightyTransparencyEnabled ? .on : .off
         menu.addItem(eightyTransparency)
         eightyTransparencyItem = eightyTransparency
-
-        let fillPlayerWindow = NSMenuItem(title: "Fill Player Window", action: #selector(toggleFillPlayerWindow), keyEquivalent: "f")
-        fillPlayerWindow.keyEquivalentModifierMask = [.command, .shift]
-        fillPlayerWindow.state = settings.fillPlayerWindowEnabled ? .on : .off
-        menu.addItem(fillPlayerWindow)
-        fillPlayerWindowItem = fillPlayerWindow
 
         let lockAspectRatio16x9 = NSMenuItem(title: "Lock 16:9 While Resizing", action: #selector(toggleLockAspectRatio16x9), keyEquivalent: "")
         lockAspectRatio16x9.state = settings.lockAspectRatio16x9Enabled ? .on : .off
@@ -668,8 +734,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NotificationCenter.default.post(name: .openURL, object: nil)
     }
 
-    @objc func toggleTransparency() {
-        NotificationCenter.default.post(name: .toggleTransparency, object: nil)
+    @objc func openWatchHistory() {
+        NSApp.activate(ignoringOtherApps: true)
+        NotificationCenter.default.post(name: .openWatchHistory, object: nil)
     }
 
     @objc func toggleHoverTransparency(_ sender: NSMenuItem) {
@@ -684,10 +751,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         settings.eightyTransparencyEnabled.toggle()
     }
 
-    @objc func toggleFillPlayerWindow(_ sender: NSMenuItem) {
-        settings.fillPlayerWindowEnabled.toggle()
-    }
-
     @objc func toggleLockAspectRatio16x9(_ sender: NSMenuItem) {
         settings.lockAspectRatio16x9Enabled.toggle()
     }
@@ -696,7 +759,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard let info = sender.representedObject as? [String: Any],
               let videoID = info["videoID"] as? String else { return }
         let time = info["time"] as? Double ?? 0
-        NotificationCenter.default.post(name: .openRecentVideo, object: nil, userInfo: ["videoID": videoID, "time": time])
+        settings.requestPlayback(videoID: videoID, time: time, sourceURL: info["sourceURL"] as? String)
     }
 
     @objc func removeRecentVideoFromMenu(_ sender: NSMenuItem) {
@@ -724,7 +787,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         for video in recent {
             let playItem = NSMenuItem(title: AppSettings.recentVideoMenuTitle(video), action: #selector(openRecentVideoFromMenu(_:)), keyEquivalent: "")
             playItem.target = self
-            playItem.representedObject = ["videoID": video.videoID, "time": video.lastPosition]
+            playItem.representedObject = PlaybackRequest(videoID: video.videoID, time: video.lastPosition, sourceURL: video.sourceURL).userInfo
             applyThumbnail(to: playItem, videoID: video.videoID)
             submenu.addItem(playItem)
         }
@@ -760,7 +823,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        guard let url = URL(string: "https://i.ytimg.com/vi/\(videoID)/mqdefault.jpg") else { return }
+        guard let url = StreamingProviderRegistry.shared.thumbnailURL(for: videoID) else { return }
         URLSession.shared.dataTask(with: url) { [weak self, weak item] data, _, _ in
             guard let self,
                   let data,
@@ -785,6 +848,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         return thumbnail
     }
 
+    private func menuIcon(_ systemSymbolName: String) -> NSImage? {
+        let image = NSImage(systemSymbolName: systemSymbolName, accessibilityDescription: nil)
+        image?.size = NSSize(width: 16, height: 16)
+        image?.isTemplate = true
+        return image
+    }
+
     private func installObservers() {
         let center = NotificationCenter.default
         observers.append(center.addObserver(forName: .setAlwaysOnTop, object: nil, queue: .main) { [weak self] notification in
@@ -800,11 +870,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         observers.append(center.addObserver(forName: .setHoverTransparency, object: nil, queue: .main) { [weak self] notification in
             if let enabled = notification.userInfo?["enabled"] as? Bool {
                 self?.hoverTransparencyItem?.state = enabled ? .on : .off
-            }
-        })
-        observers.append(center.addObserver(forName: .setFillPlayerWindow, object: nil, queue: .main) { [weak self] notification in
-            if let enabled = notification.userInfo?["enabled"] as? Bool {
-                self?.fillPlayerWindowItem?.state = enabled ? .on : .off
             }
         })
         observers.append(center.addObserver(forName: .setLockAspectRatio16x9, object: nil, queue: .main) { [weak self] notification in
@@ -828,7 +893,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
 extension Notification.Name {
     static let openURL = Notification.Name("openURL")
-    static let toggleTransparency = Notification.Name("toggleTransparency")
+    static let openWatchHistory = Notification.Name("openWatchHistory")
     static let toggleOpacity = Notification.Name("toggleOpacity")
     static let setAlwaysOnTop = Notification.Name("setAlwaysOnTop")
     static let setEightyTransparency = Notification.Name("setEightyTransparency")

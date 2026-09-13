@@ -2,13 +2,42 @@
 
 A macOS YouTube mini-player with a persistent menu bar control surface, playback restore, and lightweight watch library metadata.
 
+## YouTube API ToS / Developer Policy Compliance
+
+This app renders video **only** through YouTube's official **IFrame Player API**
+(`YT.Player`), loaded from the bundled local `YouTubePlayer/player.html`. Everything
+else (window chrome, the native control bar, history) is native SwiftUI. To stay
+compliant with the YouTube API Terms of Service and Developer Policies, contributors
+must preserve these invariants:
+
+- **The player is rendered exactly as YouTube serves it.** No ad blocking, ad
+  skipping, or ad detection of any kind. There is intentionally no `ad-showing`
+  inspection or `.ytp-*` overlay CSS — these were removed.
+- **No stripping or hiding of YouTube's UI/branding.** The injected CSS resets only
+  scrollbars and body margins; it must not touch any YouTube player controls,
+  overlays, end screens, or attribution.
+- **No downloading, caching, or re-hosting** of video/audio streams. Playback is
+  never read from a `<video>` element for YouTube; position/state come from the
+  documented IFrame API methods over the JS bridge.
+- **Natural referrer.** `player.html` is loaded via `loadHTMLString(baseURL:
+  https://www.youtube.com)` so the IFrame API's postMessage origin check passes and
+  WKWebView sends its normal `strict-origin-when-cross-origin` referrer. Do not use
+  `noreferrer` or the `nocookie` host, and do not nest the YouTube iframe.
+- **No autoplay before the player is mounted.** The first-launch demo video is
+  *cued*, not auto-played, until the user presses play.
+
+The JS↔Swift bridge uses a single `playerBridge` message channel and only documented
+IFrame methods: `loadVideoById`/`cueVideoById`, `playVideo`, `pauseVideo`, `seekTo`,
+`setVolume`, plus `onReady`/`onStateChange`/`onError`.
+
 ## Features
 
 ### Playback
 - **Open YouTube URLs**: Paste, drop, or enter a YouTube link to start playback or replace the current video
 - **Last Video Restore**: Remembers the last opened video and restores it on launch
 - **Resume Playback Position**: Stores timeline progress per video and resumes from the saved time
-- **Minimal Viewing UI**: Hides scrollbars and trims YouTube chrome for a cleaner player
+- **Native Control Bar**: A thin SwiftUI play/pause/scrub/volume strip below the player, wired through the IFrame API JS bridge (never overlaying the player)
+- **Minimal Viewing UI**: Hides only scrollbars; the YouTube player itself is shown unmodified
 
 ### Library and History
 - **Recent Videos**: Tracks recently opened videos in the menu bar
@@ -26,8 +55,8 @@ A macOS YouTube mini-player with a persistent menu bar control surface, playback
 - **Hover Transparency**: Window becomes transparent and click-through on hover
 - **80% Transparency Preset**: One-tap 80% opacity that stays clickable (⌘8)
 - **Opacity Dimmer**: Toggle to 25% opacity while keeping clicks active (⌘P)
-- **Fill Player Window**: Expands the video view for a cleaner watch surface
-- **16:9 Resize Lock**: Optional aspect-ratio lock while resizing
+- **Fill Player Window**: Crops the video to cover the whole window (no letterboxing), using the video's *real* aspect ratio fetched from YouTube's oEmbed endpoint — not a hardcoded 16:9 guess, so Shorts (9:16) and other non-standard uploads crop correctly too. On by default.
+- **16:9 Resize Lock**: Locks the window itself to a 16:9 shape while resizing. On by default; enforced pre-paint (no flicker). Independent of Fill Player Window — the window can be any shape and the video still fills correctly.
 - **Close Window Without Quitting**: Closing the player window stops audio and closes the window, but keeps the menu bar app running until you quit explicitly
 
 ### Controls
@@ -74,12 +103,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 ```
 
 #### 2. Content View (ContentView.swift)
+- **IFrame Player API**: Loads the bundled `player.html` and drives YouTube playback through the `YT.Player` JS bridge (`ytLoad`/`ytPlay`/`ytPause`/`ytSeek`/`ytSetVolume`); never loads the `youtube.com/watch` page directly
+- **Native Control Bar**: Renders the play/pause/scrub/volume strip and syncs it from `onStateChange`/timer events posted over `playerBridge`
 - **State Management**: Tracks transparency mode, hover state, active playback, and window level
 - **Window Configuration**: Sets up transparent titlebar and floating behavior
-- **Playback Restore**: Reloads the last saved video and playback position
+- **Playback Restore**: Reloads the last saved video and playback position (via the IFrame API for YouTube)
 - **Progress Persistence**: Saves timeline progress back into app state and user defaults
 - **Hover Detection**: Uses `.onHover` modifier to detect mouse position
 - **Window Manipulation**: Controls alpha value and mouse event pass-through
+
+> Non-YouTube providers (e.g. Disney+) still load their page directly into the
+> WKWebView and report progress via the `videoProgress` handler; the IFrame path
+> applies to YouTube only.
 
 ```swift
 @State private var isTransparent = true   // Hover mode on/off
@@ -133,27 +168,57 @@ window.collectionBehavior.insert(.canJoinAllSpaces)    // Follow space changes
 window.collectionBehavior.insert(.fullScreenAuxiliary) // Visible with fullscreen apps
 ```
 
+### Fill Player Window (video overflow/crop)
+
+Implemented in `player.html`, not Swift — the IFrame API iframe is sized/positioned in JS, not left at a flat `width/height: 100%`:
+
+1. `window.ytLoad(id, ...)` fires `fetchContentAspectRatio(id)`, which calls YouTube's no-auth oEmbed endpoint (`https://www.youtube.com/oembed?format=json&url=...`) and reads the real `width`/`height` for that specific video. Same-origin from the page's `baseURL` (`https://example.com`) is not required — the endpoint echoes back whatever `Origin` header it receives, so it works cross-origin too.
+2. `layoutPlayerFrame()` sizes the iframe larger than the window on whichever axis is needed to cover it at that aspect ratio, centers it with `position: absolute`, and relies on `body { overflow: hidden }` to clip the excess.
+3. Falls back to a 16:9 assumption if the oEmbed fetch fails or hasn't resolved yet, and re-runs on `onReady` and on every `resize` event.
+
+**Why oEmbed and not a hardcoded 16:9:** the naive version (fixed 16:9) forces an extreme, wrong-looking zoom whenever the actual content isn't 16:9 — most visibly on YouTube Shorts (9:16) or when the *window* itself isn't 16:9-shaped. Fetching the actual ratio per-video fixes both cases with the same code path.
+
+**This is independent of the window's own shape/aspect ratio** — the crop math re-derives from whatever `window.innerWidth/innerHeight` currently are, so it doesn't matter whether the 16:9 window lock (below) is on, off, or the window is a completely different shape (e.g. an external tiling window manager resized it).
+
+### 16:9 Window Lock
+
+Implemented in `PlayerWindowCoordinator` (`ContentView.swift`), as an `NSWindowDelegate`:
+
+- `windowWillResize(_:to:)` — the primary path. Returns a 16:9-corrected size to AppKit *before* anything is committed or painted, so interactive drag-resizing only ever renders the final, correct frame — no flicker.
+- `windowDidResize(_:)` → `applyLockedAspectRatio(to:)` — a backstop for resizes that bypass the `windowWillResize` negotiation entirely (observed with `setFrame` calls issued by another process, e.g. an external window manager). Applied synchronously, not deferred to the next run-loop turn, to minimize the race window against anything else trying to re-assert a different frame right after. It's a no-op when `windowWillResize` already produced the correct size (epsilon-guarded), so the common interactive-resize path never double-paints.
+
+`AppSettings.lockAspectRatio16x9Enabled` and `.fillPlayerWindowEnabled` are both hard-defaulted `true` in code, and `loadPersistedValues()` deliberately skips restoring either from `UserDefaults`. **Do not "fix" this by making them restore from defaults again** — that was tried and is exactly what broke the 16:9 lock previously: a stale `false` persisted from an earlier session/build silently overrode the in-code default on every launch, so the feature looked "randomly" disabled with no code-level indication why. If you need a real user-facing off switch for either, the toggle already exists (menu items "Fill Player Window" / "Lock 16:9 While Resizing"); just don't let `loadPersistedValues()` restore a stored value for them.
+
+### External Tiling Window Managers (AeroSpace, yabai, etc.)
+
+Three separate, sometimes-conflicting concerns come up under a tiling WM:
+
+1. **Resizing/tiling at all.** `.canJoinAllSpaces` (used for "follow across Spaces", above) is exactly the collection-behavior flag most tiling WMs read as "this window is floating/sticky — leave it alone." With it set, AeroSpace won't pull the window into its tiling grid. This is a real trade-off, not a bug: drop `.canJoinAllSpaces` if you want AeroSpace to tile/resize it, keep it if you want cross-Space follow. You can't cleanly have AeroSpace-tiling *and* native macOS all-spaces-follow on the same window at once.
+2. **Fighting the 16:9 lock.** If `lockAspectRatio16x9Enabled` is on, `windowWillResize` will correct *any* resize — including one an external WM just requested — back to 16:9. If you want AeroSpace to freely size the window, turn the 16:9 lock off (menu item, or flip the code default — see the warning above about not restoring it from `UserDefaults` if you do).
+3. **Following you across AeroSpace *workspaces* specifically.** This is different from #1's macOS *Spaces*. AeroSpace has no native sticky/all-workspaces window feature at all — see [nikitabobko/AeroSpace#2](https://github.com/nikitabobko/AeroSpace/issues/2), open since 2024, with no built-in flag or config option that fixes it. The only known workaround (used by other AeroSpace users in that thread) is scripting `exec-on-workspace-change` to actively move the window to whatever workspace becomes focused. That's configured in `~/.config/aerospace/aerospace.toml` (outside this repo), not in this app:
+
+    ```toml
+    exec-on-workspace-change = ['/bin/bash', '-c',
+        'WIN=$(aerospace list-windows --monitor all --app-bundle-id com.example.YouTubePlayer --format "%{window-id}" 2>/dev/null); [ -n "$WIN" ] && aerospace move-node-to-workspace --window-id "$WIN" "$AEROSPACE_FOCUSED_WORKSPACE"'
+    ]
+    ```
+
+    Verified working by switching workspaces via `aerospace workspace <name>` and confirming with `aerospace list-windows --monitor all --app-bundle-id com.example.YouTubePlayer --format "%{workspace}"`. Known limitation (from the same upstream thread): this moves the window but doesn't force focus, so it can end up behind whatever's already focused on the workspace you land on — not brought fully to front automatically.
+
 ### CSS Customization
 
-The app injects custom CSS to enhance the YouTube viewing experience:
+The app injects only a minimal reset so the player surface sits flush. It does
+**not** hide or alter any YouTube player UI, overlays, or branding (see the
+compliance section above):
 
 ```css
-/* Hide scrollbars */
 ::-webkit-scrollbar { display: none !important; }
-
-/* Remove overflow */
-body { overflow: hidden !important; margin: 0 !important; }
-html { overflow: hidden !important; }
-
-/* Hide YouTube header */
-#masthead-container { display: none !important; }
-
-/* Theater mode optimization */
-ytd-watch-flexy[theater] #player-theater-container.ytd-watch-flexy {
-    max-width: 100% !important;
-    width: 100% !important;
-}
+html, body { overflow: hidden !important; margin: 0 !important; background: #000 !important; }
 ```
+
+> Earlier versions injected CSS that hid the YouTube masthead and in-player
+> overlays (end screens, pause overlay, "more videos"). That was removed when the
+> app moved to the IFrame Player API, to comply with the YouTube API ToS.
 
 ## Technical Details
 

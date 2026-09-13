@@ -11,7 +11,9 @@
 		B1000002000000000000001 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000002000000000000001 /* ContentView.swift */; };
 		B1000003000000000000001 /* WebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000003000000000000001 /* WebView.swift */; };
 		B1000004000000000000001 /* URLHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000004000000000000001 /* URLHelper.swift */; };
+		B1000006000000000000001 /* StreamingProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000007000000000000001 /* StreamingProvider.swift */; };
 		B1000005000000000000001 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B2000006000000000000001 /* Assets.xcassets */; };
+		B1000007000000000000001 /* player.html in Resources */ = {isa = PBXBuildFile; fileRef = B2000008000000000000001 /* player.html */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -20,8 +22,10 @@
 		B2000002000000000000001 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		B2000003000000000000001 /* WebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebView.swift; sourceTree = "<group>"; };
 		B2000004000000000000001 /* URLHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = URLHelper.swift; sourceTree = "<group>"; };
+		B2000007000000000000001 /* StreamingProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamingProvider.swift; sourceTree = "<group>"; };
 		B2000005000000000000001 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		B2000006000000000000001 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		B2000008000000000000001 /* player.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = player.html; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -51,6 +55,8 @@
 				B2000002000000000000001 /* ContentView.swift */,
 				B2000003000000000000001 /* WebView.swift */,
 				B2000004000000000000001 /* URLHelper.swift */,
+				B2000007000000000000001 /* StreamingProvider.swift */,
+				B2000008000000000000001 /* player.html */,
 				B2000005000000000000001 /* Info.plist */,
 			);
 			path = YouTubePlayer;
@@ -123,6 +129,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				B1000005000000000000001 /* Assets.xcassets in Resources */,
+				B1000007000000000000001 /* player.html in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -137,6 +144,7 @@
 				B1000002000000000000001 /* ContentView.swift in Sources */,
 				B1000003000000000000001 /* WebView.swift in Sources */,
 				B1000004000000000000001 /* URLHelper.swift in Sources */,
+				B1000006000000000000001 /* StreamingProvider.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
