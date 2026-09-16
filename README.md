@@ -1,10 +1,10 @@
 # YouTube Player
 
-A macOS YouTube mini-player with a persistent menu bar control surface, playback restore, and lightweight watch library metadata.
+A native macOS mini-player for YouTube videos and playlists, local and linked MP4 files, and supported streaming pages. Includes a responsive floating toolbar, saved playback queues, menu bar controls, and watch history.
 
 ## YouTube API ToS / Developer Policy Compliance
 
-This app renders video **only** through YouTube's official **IFrame Player API**
+For YouTube, this app renders video through YouTube's official **IFrame Player API**
 (`YT.Player`), loaded from the bundled local `YouTubePlayer/player.html`. Everything
 else (window chrome, the native control bar, history) is native SwiftUI. To stay
 compliant with the YouTube API Terms of Service and Developer Policies, contributors
@@ -28,7 +28,7 @@ must preserve these invariants:
 
 The JS↔Swift bridge uses a single `playerBridge` message channel and only documented
 IFrame methods: `loadVideoById`/`cueVideoById`, `playVideo`, `pauseVideo`, `seekTo`,
-`setVolume`, plus `onReady`/`onStateChange`/`onError`.
+`setVolume`, `loadPlaylist`/`cuePlaylist`, `nextVideo`/`previousVideo`, plus `onReady`/`onStateChange`/`onError`. MP4 uses native HTML video events through the WebKit bridge.
 
 ## Features
 
@@ -36,8 +36,14 @@ IFrame methods: `loadVideoById`/`cueVideoById`, `playVideo`, `pauseVideo`, `seek
 - **Open YouTube URLs**: Paste, drop, or enter a YouTube link to start playback or replace the current video
 - **Last Video Restore**: Remembers the last opened video and restores it on launch
 - **Resume Playback Position**: Stores timeline progress per video and resumes from the saved time
-- **Native Control Bar**: A thin SwiftUI play/pause/scrub/volume strip below the player, wired through the IFrame API JS bridge (never overlaying the player)
+- **Responsive Toolbar**: A dark floating SwiftUI toolbar with a prominent circular play/pause button, seeking, volume, and playlist access. Compact windows move secondary controls into Playback options.
 - **Minimal Viewing UI**: Hides only scrollbars; the YouTube player itself is shown unmodified
+
+### MP4 and Playlists
+- **MP4 playback**: Drop a local `.mp4` file or open a direct HTTP(S) MP4 URL. Codec support depends on macOS WebKit.
+- **YouTube playlists**: Open a URL containing `list=`; playlist position is preserved and previous/next controls navigate its entries.
+- **Saved queue**: Open **Player → Playlist…** with **⌘⇧P**, add links or multiple MP4 files, reorder or remove entries, and play an item. The queue persists locally and advances when playback ends.
+- **Drop handling**: Supports URL, text, and file drops; unsupported inputs are rejected. Delivery is deferred to avoid changing layout during the native drop callback.
 
 ### Library and History
 - **Recent Videos**: Tracks recently opened videos in the menu bar
@@ -63,7 +69,7 @@ IFrame methods: `loadVideoById`/`cueVideoById`, `playVideo`, `pauseVideo`, `seek
 
 #### Menu Bar Icon
 Click the play button icon in the menu bar to access:
-- **Open URL...** (⌘O) - Open a YouTube video by URL
+- **Open URL...** (⌘O) - Open a supported video or playlist URL
 - **Hover Transparency** (⌘T) - Enable/disable hover transparency mode
 - **Always On Top** (⌘L) - Control whether window floats above others
 - **80% Transparency** (⌘8) - Set a fixed 80% transparent, still-clickable window
@@ -82,6 +88,10 @@ YouTubePlayer/
 ├── YouTubePlayerApp.swift      # Main app entry point & menu bar setup
 ├── ContentView.swift            # Main UI and window management
 ├── WebView.swift                # WKWebView wrapper for SwiftUI
+├── PlayerToolbar.swift          # Responsive native playback controls
+├── PlaylistView.swift           # Saved queue editor
+├── StreamingProvider.swift      # Provider selection and URL resolution
+├── player.html                 # YouTube IFrame API bridge
 ├── URLHelper.swift              # YouTube URL parsing utilities
 └── Info.plist                   # App configuration
 ```
@@ -254,11 +264,11 @@ Version/17.0 Safari/605.1.15
 
 ### Opening Videos
 **Method 1: Drag & Drop**
-- Drag any YouTube URL and drop it on the player window
+- Drop a YouTube video/playlist URL, direct MP4 URL, or local MP4 file on the player window
 
 **Method 2: Menu Bar**
 - Click the menu bar icon → "Open URL..."
-- Paste the YouTube URL and click "Open"
+- Paste the supported video or playlist URL and click "Open"
 
 **Method 3: Keyboard Shortcut**
 - Press ⌘O to open the URL dialog
@@ -278,7 +288,7 @@ Version/17.0 Safari/605.1.15
 ### Controlling Transparency
 1. **Enable Hover Mode**: Click menu bar icon → "Toggle Transparency" (or press ⌘T)
 2. Move mouse over window to make it transparent and click-through
-3. Move mouse away to interact with the player
+3. Disable Hover Transparency with ⌘T when you want to use the on-window playback controls. Active dragging suppresses hover click-through.
 
 ### Opacity Presets
 - **80% Transparency (clickable)**: Menu → "80% Transparency" (⌘8). Keeps the window interactive while semi-transparent.
@@ -296,7 +306,7 @@ Version/17.0 Safari/605.1.15
 ### Minimalism
 - No unnecessary UI elements
 - Clean, distraction-free viewing
-- Hidden YouTube interface elements
+- Native controls with restrained visual chrome
 
 ### Non-Intrusive
 - Hover transparency allows working with apps below
@@ -314,7 +324,6 @@ Potential features for future versions:
 - Picture-in-Picture mode
 - Custom opacity levels (adjustable transparency)
 - Multiple video windows
-- Playlist support
 - Volume control from menu bar
 - Window size presets
 - Remember more window/layout presets
@@ -347,6 +356,12 @@ xcodebuild \
 
 - The signed app will be at `DerivedDataBuild/Build/Products/Release/YouTubePlayer.app`.
 - Copy it to `/Applications` (or wherever you prefer) to run it outside Xcode.
+
+## Verification
+
+See [Tests/README.md](Tests/README.md) for regression commands and manual checks. The September 16, 2026 Release build passed, along with media/drop and playlist bridge checks. Native checks covered MP4 playback and queue advancement; modern toolbar and playlist captures are in `build/UpdatedPlayer/verification/` when the packaged build is present. The original reported drag crash was not reproduced, so the drop changes are hardening rather than a confirmed reproduction-based fix. Full VoiceOver operation and measured contrast were not audited.
+
+The locally packaged app is `build/UpdatedPlayer/YouTubePlayer.app`. UI tokens and implementation notes are in [design.md](design.md).
 
 ## License
 
