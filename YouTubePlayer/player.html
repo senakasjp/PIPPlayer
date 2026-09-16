@@ -32,9 +32,10 @@
     var playerReady = false;
     var timer = null;
     var currentVideoId = '';
+    var currentPlaylistId = '';
 
     // Queued load request that arrives before the player is ready.
-    var pending = null; // { id, start, autoplay }
+    var pending = null; // { id, start, autoplay, index }
 
     function post(msg) {
       if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.playerBridge) {
@@ -110,8 +111,18 @@
       try { var d = player.getVideoData(); return (d && d.title) ? d.title : ''; } catch (e) { return ''; }
     }
 
-    function doLoad(id, start, autoplay) {
-      if (!playerReady || !player) { pending = { id: id, start: start, autoplay: autoplay }; return; }
+    function playlistIndex() {
+      try { return currentPlaylistId && player ? player.getPlaylistIndex() : -1; } catch (e) { return -1; }
+    }
+
+    function doLoad(id, start, autoplay, index) {
+      if (!playerReady || !player) { pending = { id: id, start: start, autoplay: autoplay, index: index }; return; }
+      if (currentPlaylistId) {
+        var options = { listType: 'playlist', list: currentPlaylistId, index: index || 0, startSeconds: start || 0 };
+        if (autoplay) player.loadPlaylist(options);
+        else player.cuePlaylist(options);
+        return;
+      }
       if (autoplay) {
         player.loadVideoById({ videoId: id, startSeconds: start || 0 });
       } else {
@@ -121,12 +132,15 @@
     }
 
     // ---- Documented IFrame Player API methods, called from Swift ----
-    window.ytLoad = function (id, start, autoplay) {
-      currentVideoId = id;
+    window.ytLoad = function (id, start, autoplay, index) {
+      currentPlaylistId = id.indexOf('youtube-playlist:') === 0 ? id.slice('youtube-playlist:'.length) : '';
+      currentVideoId = currentPlaylistId ? '' : id;
       contentAspectRatio = 16 / 9;
-      fetchContentAspectRatio(id);
-      doLoad(id, start || 0, !!autoplay);
+      if (currentVideoId) fetchContentAspectRatio(currentVideoId);
+      doLoad(id, start || 0, !!autoplay, Math.max(0, Number(index) || 0));
     };
+    window.ytNext = function () { try { if (playerReady && currentPlaylistId) player.nextVideo(); } catch (e) {} };
+    window.ytPrevious = function () { try { if (playerReady && currentPlaylistId) player.previousVideo(); } catch (e) {} };
     window.ytPlay = function () { try { if (player) player.playVideo(); } catch (e) {} };
     window.ytPause = function () { try { if (player) player.pauseVideo(); } catch (e) {} };
     window.ytSeek = function (seconds) { try { if (player) player.seekTo(seconds, true); } catch (e) {} };
@@ -143,6 +157,8 @@
           duration: safeDuration(),
           state: safeState(),
           videoId: videoId(),
+          playlistId: currentPlaylistId,
+          playlistIndex: playlistIndex(),
           title: videoTitle()
         });
       }, 1000);
@@ -153,11 +169,23 @@
       post({ event: 'ready' });
       startTimer();
       layoutPlayerFrame();
-      if (pending) { var p = pending; pending = null; doLoad(p.id, p.start, p.autoplay); }
+      if (pending) { var p = pending; pending = null; doLoad(p.id, p.start, p.autoplay, p.index); }
     }
 
     function onStateChange(e) {
-      post({ event: 'state', state: e.data, currentTime: safeTime(), duration: safeDuration(), videoId: videoId(), title: videoTitle() });
+      var id = videoId();
+      if (id && id !== currentVideoId) {
+        currentVideoId = id;
+        contentAspectRatio = 16 / 9;
+        fetchContentAspectRatio(id);
+      }
+      post({ event: 'state', state: e.data, currentTime: safeTime(), duration: safeDuration(), videoId: id, title: videoTitle(), playlistId: currentPlaylistId, playlistIndex: playlistIndex() });
+      if (e.data === 0 && currentPlaylistId) {
+        var entries = player.getPlaylist();
+        if (entries && entries.length && playlistIndex() === entries.length - 1) {
+          post({ event: 'playlistEnded', playlistId: currentPlaylistId });
+        }
+      }
     }
 
     function onError(e) {

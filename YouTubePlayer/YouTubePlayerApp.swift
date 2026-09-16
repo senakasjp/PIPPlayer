@@ -601,6 +601,11 @@ struct PlayerCommands: Commands {
             }
             .keyboardShortcut("o", modifiers: .command)
 
+            Button("Playlist…") {
+                NotificationCenter.default.post(name: .openPlaylist, object: nil)
+            }
+            .keyboardShortcut("p", modifiers: [.command, .shift])
+
             Button("Open Watch History") {
                 openWindow(id: "watch-history")
             }
@@ -892,6 +897,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 extension Notification.Name {
+    static let openPlaylist = Notification.Name("openPlaylist")
     static let openURL = Notification.Name("openURL")
     static let openWatchHistory = Notification.Name("openWatchHistory")
     static let toggleOpacity = Notification.Name("toggleOpacity")

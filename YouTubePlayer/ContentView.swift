@@ -45,6 +45,10 @@ struct ContentView: View {
     @State private var playerVolume: Double = 100
     @State private var isScrubbing = false
     @State private var currentVideoTitle: String = ""
+    @State private var playlistURLs = UserDefaults.standard.stringArray(forKey: "playlistURLs") ?? []
+    @State private var playlistIndex: Int?
+    @State private var showingPlaylist = false
+    @State private var pendingPlaylistIndex = 0
 
     init() {
         scriptHandler = YouTubeScriptMessageHandler()
@@ -88,6 +92,17 @@ struct ContentView: View {
                 const postProgress = () => {
                     const video = document.querySelector('video');
                     if (!video) { return; }
+                    if (window.location.pathname.toLowerCase().endsWith('.mp4')) {
+                        video.classList.remove('media-document', 'audio');
+                    }
+                    if (window.location.pathname.toLowerCase().endsWith('.mp4') && !video.nativePlaylistTracking) {
+                        video.nativePlaylistTracking = true;
+                        video.controls = false;
+                        video.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;max-width:none;max-height:none;margin:0;object-fit:contain';
+                        video.addEventListener('ended', () => {
+                            window.webkit.messageHandlers.playerBridge.postMessage({event: 'mediaEnded', sourceURL: window.location.href});
+                        });
+                    }
                     const host = window.location.hostname.toLowerCase();
                     const params = new URLSearchParams(window.location.search);
                     let videoId = '';
@@ -95,11 +110,18 @@ struct ContentView: View {
                         videoId = params.get('v') || window.location.pathname.split('/').filter(Boolean).pop() || '';
                     } else if (host === 'disneyplus.com' || host.endsWith('.disneyplus.com')) {
                         videoId = 'disneyplus:' + (window.location.pathname || '/');
+                    } else if (window.location.pathname.toLowerCase().endsWith('.mp4')) {
+                        videoId = 'mp4:' + window.location.href;
                     }
                     if (!videoId) { return; }
                     const titleNode = document.querySelector('ytd-watch-metadata h1 yt-formatted-string');
                     const title = (titleNode && titleNode.textContent ? titleNode.textContent : document.title || '').trim();
                     handler.postMessage({ videoId: videoId, currentTime: video.currentTime || 0, title: title });
+                    if (videoId.startsWith('mp4:')) {
+                        window.webkit.messageHandlers.playerBridge.postMessage({event: 'mediaTime', videoId: videoId,
+                            currentTime: video.currentTime || 0, duration: Number.isFinite(video.duration) ? video.duration : 0,
+                            state: video.ended ? 0 : (video.paused ? 2 : 1), title: title});
+                    }
                 };
 
                 window.nativePostPlaybackProgress = postProgress;
@@ -118,13 +140,12 @@ struct ContentView: View {
                     window.addEventListener('beforeunload', postProgress);
                     window.addEventListener('yt-navigate-start', postProgress);
                     window.addEventListener('yt-navigate-finish', postProgress);
+                    if (window.location.pathname.toLowerCase().endsWith('.mp4')) {
+                        new MutationObserver(postProgress).observe(document.documentElement, {childList: true, subtree: true});
+                    }
                 };
 
-                if (document.readyState === 'complete' || document.readyState === 'interactive') {
-                    install();
-                } else {
-                    document.addEventListener('DOMContentLoaded', install, { once: true });
-                }
+                install();
             })();
             """,
             injectionTime: .atDocumentEnd,
@@ -169,7 +190,7 @@ struct ContentView: View {
     }
 
     // Bars are visible when hovered (or while the scrub slider is active).
-    private var barsVisible: Bool { (isHovering || isScrubbing) && isYouTubeActive }
+    private var barsVisible: Bool { (isHovering || isScrubbing || playerState != 1) && (isYouTubeActive || currentVideoID?.hasPrefix("mp4:") == true) }
 
     var body: some View {
         ZStack {
@@ -183,12 +204,17 @@ struct ContentView: View {
                 },
                 onTargetedChange: { isTargeted in
                     DispatchQueue.main.async {
-                        isDropTargeted = isTargeted
+                        if isDropTargeted != isTargeted {
+                            isDropTargeted = isTargeted
+                        }
                     }
                 }
             )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .opacity(contentOpacity)
+                .onDrop(of: ["public.file-url", "public.url", "public.utf8-plain-text"], isTargeted: $isDropTargeted) { providers in
+                    WebView.receiveDrop(providers) { loadStreamingURL($0) }
+                }
 
             if statusMessage != "" {
                 VStack {
@@ -205,7 +231,7 @@ struct ContentView: View {
                 .transition(.opacity.animation(.easeInOut(duration: 0.18)))
             }
 
-            if isDropTargeted {
+            Color.clear.overlay {
                 ZStack {
                     RoundedRectangle(cornerRadius: 22, style: .continuous)
                         .fill(.ultraThinMaterial)
@@ -230,11 +256,11 @@ struct ContentView: View {
                                 .foregroundColor(.white)
                         }
 
-                        Text("Drop URL to Play")
+                        Text("Drop Video or URL to Play")
                             .font(.system(size: 20, weight: .semibold))
                             .foregroundColor(.white)
 
-                        Text("YouTube · Disney+")
+                        Text("YouTube · Disney+ · MP4")
                             .font(.system(size: 13, weight: .regular))
                             .foregroundColor(.white.opacity(0.6))
                     }
@@ -242,8 +268,9 @@ struct ContentView: View {
                 }
                 .padding(28)
                 .allowsHitTesting(false)
-                .transition(.opacity.animation(.easeInOut(duration: 0.15)))
+                .opacity(isDropTargeted ? 1 : 0)
             }
+            .allowsHitTesting(false)
 
             // Hover-only overlay bars — top title strip + bottom controls.
             // Visible only while the mouse is over the window (or scrubbing).
@@ -261,6 +288,22 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .openURL)) { _ in
             promptForURL()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openPlaylist)) { _ in
+            showingPlaylist = true
+        }
+        .sheet(isPresented: $showingPlaylist) {
+            PlaylistView(urls: $playlistURLs, currentIndex: playlistIndex) { index in
+                playPlaylistItem(index)
+            }
+        }
+        .onChange(of: playlistURLs) { _ in
+            if playlistIndex != nil {
+                playlistIndex = playlistURLs.firstIndex {
+                    StreamingProviderRegistry.shared.resolve($0)?.mediaID == currentVideoID
+                }
+            }
+            UserDefaults.standard.set(playlistURLs, forKey: "playlistURLs")
         }
         .onReceive(NotificationCenter.default.publisher(for: .toggleOpacity)) { _ in
             toggleOpacity()
@@ -315,60 +358,81 @@ struct ContentView: View {
             pauseAndPersistCurrentPlayback()
             window = nil
         }
-        .onAppear {
-            // Progress callback for non-YouTube (Disney+) pages.
-            scriptHandler.onProgress = { videoId, time, title in
-                updatePlaybackPosition(videoID: videoId, time: time, title: title)
-            }
-            // IFrame Player API bridge callbacks.
-            scriptHandler.onPlayerReady = { handlePlayerReady() }
-            scriptHandler.onPlayerStateChange = { state, time, duration in
-                DispatchQueue.main.async {
-                    playerState = state
-                    if duration > 0 { playerDuration = duration }
-                    if !isScrubbing { playerCurrentTime = time }
-                }
-            }
-            scriptHandler.onPlayerError = { message in
-                DispatchQueue.main.async { setStatusMessage(message, clearAfter: 6) }
-            }
-            scriptHandler.onPlayerTick = { videoId, time, duration, title, state in
-                DispatchQueue.main.async {
-                    playerState = state
-                    if duration > 0 { playerDuration = duration }
-                    if !isScrubbing { playerCurrentTime = time }
-                    if !title.isEmpty { currentVideoTitle = title }
-                    if !videoId.isEmpty, duration > 0, (state == 1 || state == 2), time > 0 {
-                        updatePlaybackPosition(videoID: videoId, time: time, title: title.isEmpty ? nil : title)
-                    }
-                }
-            }
-
-            scheduleWindowSetup()
-            // Sync initial state with settings
-            isAlwaysOnTop = settings.alwaysOnTopEnabled
-            setAlwaysOnTop(to: settings.alwaysOnTopEnabled)
-            setEightyTransparency(to: settings.eightyTransparencyEnabled)
-            setHoverTransparency(to: settings.hoverTransparencyEnabled)
-            setFillPlayerWindow(to: settings.fillPlayerWindowEnabled)
-            setLockAspectRatio16x9(to: settings.lockAspectRatio16x9Enabled)
-            if let request = settings.consumePendingPlaybackRequest() {
-                playRecentVideo(videoID: request.videoID, startTime: request.time, sourceURL: request.sourceURL)
-            } else if let url = pendingInitialURL {
-                pendingInitialURL = nil
-                loadStreamingURL(url.absoluteString, rememberAsLast: false)
-            } else {
-                // Nothing to restore: pre-load the IFrame player shell (no video) so
-                // it's ready the moment the user drops a URL.
-                loadPlayerPage()
-            }
-        }
+        .onAppear(perform: configurePlayback)
         .onDisappear {
             persistLastOpenedVideoFallback()
             hoverMonitorTimer?.invalidate()
             hoverMonitorTimer = nil
         }
 
+    }
+
+    private func configurePlayback() {
+        // Progress callback for non-YouTube (Disney+) pages.
+        scriptHandler.onProgress = { videoId, time, title in
+            updatePlaybackPosition(videoID: videoId, time: time, title: title)
+        }
+        // IFrame Player API bridge callbacks.
+        scriptHandler.onPlayerReady = { handlePlayerReady() }
+        scriptHandler.onPlayerStateChange = { state, time, duration in
+            DispatchQueue.main.async {
+                playerState = state
+                if duration > 0 { playerDuration = duration }
+                if !isScrubbing { playerCurrentTime = time }
+                if state == 0, !(currentVideoID?.hasPrefix("youtube-playlist:") ?? false) {
+                    advancePlaylist()
+                }
+            }
+        }
+        scriptHandler.onMediaEnded = { sourceURL in
+            DispatchQueue.main.async {
+                if sourceURL == nil || sourceURL == currentSourceURL { advancePlaylist() }
+            }
+        }
+        scriptHandler.onPlaylistPosition = { id, index in
+            DispatchQueue.main.async {
+                guard currentVideoID == "youtube-playlist:" + id,
+                      var components = URLComponents(string: currentSourceURL ?? "") else { return }
+                var items = components.queryItems ?? []
+                items.removeAll { $0.name == "index" }
+                items.append(URLQueryItem(name: "index", value: String(index + 1)))
+                components.queryItems = items
+                currentSourceURL = components.url?.absoluteString
+            }
+        }
+        scriptHandler.onPlayerError = { message in
+            DispatchQueue.main.async { setStatusMessage(message, clearAfter: 6) }
+        }
+        scriptHandler.onPlayerTick = { videoId, time, duration, title, state in
+            DispatchQueue.main.async {
+                playerState = state
+                if duration > 0 { playerDuration = duration }
+                if !isScrubbing { playerCurrentTime = time }
+                if !title.isEmpty { currentVideoTitle = title }
+                if !videoId.isEmpty, duration > 0, (state == 1 || state == 2), time > 0 {
+                    updatePlaybackPosition(videoID: videoId, time: time, title: title.isEmpty ? nil : title)
+                }
+            }
+        }
+
+        scheduleWindowSetup()
+        // Sync initial state with settings
+        isAlwaysOnTop = settings.alwaysOnTopEnabled
+        setAlwaysOnTop(to: settings.alwaysOnTopEnabled)
+        setEightyTransparency(to: settings.eightyTransparencyEnabled)
+        setHoverTransparency(to: settings.hoverTransparencyEnabled)
+        setFillPlayerWindow(to: settings.fillPlayerWindowEnabled)
+        setLockAspectRatio16x9(to: settings.lockAspectRatio16x9Enabled)
+        if let request = settings.consumePendingPlaybackRequest() {
+            playRecentVideo(videoID: request.videoID, startTime: request.time, sourceURL: request.sourceURL)
+        } else if let url = pendingInitialURL {
+            pendingInitialURL = nil
+            loadStreamingURL(url.absoluteString, rememberAsLast: false)
+        } else {
+            // Nothing to restore: pre-load the IFrame player shell (no video) so
+            // it's ready the moment the user drops a URL.
+            loadPlayerPage()
+        }
     }
 
     private var playerTopBar: some View {
@@ -393,61 +457,40 @@ struct ContentView: View {
     }
 
     private var playerControlBar: some View {
-        HStack(spacing: 12) {
-            Button(action: playerTogglePlayPause) {
-                Image(systemName: playerState == 1 ? "pause.fill" : "play.fill")
-                    .font(.system(size: 14, weight: .semibold))
-                    .frame(width: 22)
-            }
-            .buttonStyle(.plain)
-            .help(playerState == 1 ? "Pause" : "Play")
-
-            Text(AppSettings.formatPlaybackTime(playerCurrentTime))
-                .font(.system(size: 11, weight: .regular).monospacedDigit())
-                .foregroundColor(.secondary)
-                .frame(width: 52, alignment: .trailing)
-
-            Slider(
-                value: Binding(
-                    get: { min(playerCurrentTime, max(playerDuration, 0.1)) },
-                    set: { playerCurrentTime = $0 }
-                ),
-                in: 0...max(playerDuration, 0.1),
-                onEditingChanged: { editing in
-                    isScrubbing = editing
-                    if !editing { playerSeek(to: playerCurrentTime) }
-                }
-            )
-
-            Text(AppSettings.formatPlaybackTime(playerDuration))
-                .font(.system(size: 11, weight: .regular).monospacedDigit())
-                .foregroundColor(.secondary)
-                .frame(width: 52, alignment: .leading)
-
-            Image(systemName: "speaker.wave.2.fill")
-                .font(.system(size: 11))
-                .foregroundColor(.secondary)
-            Slider(
-                value: Binding(
-                    get: { playerVolume },
-                    set: { playerSetVolume($0) }
-                ),
-                in: 0...100
-            )
-            .frame(width: 80)
-        }
-        .padding(.horizontal, 14)
-        .frame(height: 40)
-        .background(
-            LinearGradient(
-                colors: [.clear, .black.opacity(0.55)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
+        PlayerToolbar(
+            isPlaying: playerState == 1,
+            currentTime: $playerCurrentTime,
+            duration: playerDuration,
+            volume: Binding(get: { playerVolume / 100 }, set: { playerSetVolume($0 * 100) }),
+            isScrubbing: $isScrubbing,
+            onToggle: playerTogglePlayPause,
+            onSeek: { playerSeek(to: playerCurrentTime) },
+            onPrevious: previousPlaylistAction,
+            onNext: nextPlaylistAction,
+            onPlaylist: { showingPlaylist = true }
         )
+        .padding(.horizontal, 8)
+        .padding(.bottom, 8)
+    }
+
+    private var previousPlaylistAction: (() -> Void)? {
+        if currentVideoID?.hasPrefix("youtube-playlist:") == true {
+            return { evaluatePlayer("window.ytPrevious();") }
+        }
+        guard let index = playlistIndex, index > 0 else { return nil }
+        return { playPlaylistItem(index - 1) }
+    }
+
+    private var nextPlaylistAction: (() -> Void)? {
+        if currentVideoID?.hasPrefix("youtube-playlist:") == true {
+            return { evaluatePlayer("window.ytNext();") }
+        }
+        guard let index = playlistIndex, playlistURLs.indices.contains(index + 1) else { return nil }
+        return { playPlaylistItem(index + 1) }
     }
 
     func loadStreamingURL(_ urlString: String, rememberAsLast: Bool = true) {
+        playlistIndex = nil
         let initialMedia = StreamingProviderRegistry.shared.resolve(urlString)
         if let mediaID = initialMedia?.mediaID {
             let savedTime = playbackPositions[mediaID]
@@ -470,7 +513,7 @@ struct ContentView: View {
     func promptForURL() {
         let alert = NSAlert()
         alert.messageText = "Open Streaming URL"
-        alert.informativeText = "Enter a YouTube or Disney+ URL:"
+        alert.informativeText = "Enter a YouTube, Disney+, or MP4 URL. You can also drop an MP4 file onto the player."
         alert.alertStyle = .informational
 
         let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 24))
@@ -498,18 +541,34 @@ struct ContentView: View {
 
     func loadVideo(videoID: String, startTime: Double, rememberAsLast: Bool) {
         guard let url = StreamingProviderRegistry.shared.playbackURL(for: videoID, startTime: adjustedResumeStartTime(from: startTime)) else { return }
-        let media = StreamingMedia(
-            providerID: videoID.hasPrefix("disneyplus:") ? "disneyplus" : "youtube",
-            providerName: StreamingProviderRegistry.shared.providerName(for: videoID),
-            mediaID: videoID,
-            playbackURL: url,
-            defaultTitle: StreamingProviderRegistry.shared.providerName(for: videoID) + " Video",
-            canResumeWithURLParameter: !videoID.hasPrefix("disneyplus:")
-        )
+        guard let media = StreamingProviderRegistry.shared.resolve(url.absoluteString) else { return }
         loadMedia(media, startTime: startTime, rememberAsLast: rememberAsLast)
     }
 
+    private func playPlaylistItem(_ index: Int) {
+        guard playlistURLs.indices.contains(index),
+              let media = StreamingProviderRegistry.shared.resolve(playlistURLs[index]) else { return }
+        playlistIndex = index
+        showingPlaylist = false
+        currentVideoID = nil
+        loadMedia(media, startTime: 0, rememberAsLast: true)
+    }
+
+    private func advancePlaylist() {
+        guard let index = playlistIndex else { return }
+        if playlistURLs.indices.contains(index + 1) {
+            playPlaylistItem(index + 1)
+        } else {
+            playlistIndex = nil
+        }
+    }
+
     func loadMedia(_ media: StreamingMedia, startTime: Double, rememberAsLast: Bool) {
+        if media.playbackURL.isFileURL,
+           !FileManager.default.isReadableFile(atPath: media.playbackURL.path) {
+            setStatusMessage("This video file is unavailable or cannot be read.")
+            return
+        }
         if rememberAsLast {
             settings.allowRecording(videoID: media.mediaID)
         }
@@ -517,13 +576,13 @@ struct ContentView: View {
             // For YouTube, use the canonical watch URL as the source reference so
             // URL-based history and ID extraction continue to work correctly.
             let sourceURL: String
-            if media.providerID == "youtube" {
+            if media.providerID == "youtube", !media.mediaID.hasPrefix("youtube-playlist:") {
                 sourceURL = "https://www.youtube.com/watch?v=\(media.mediaID)"
             } else {
                 sourceURL = media.playbackURL.absoluteString
             }
 
-            if currentVideoID == media.mediaID {
+            if currentVideoID == media.mediaID, currentSourceURL == sourceURL, playerState != 0 {
                 currentVideoID = media.mediaID
                 currentSourceURL = sourceURL
                 applyHistoryNotice(historyEntry(for: media.mediaID))
@@ -535,18 +594,29 @@ struct ContentView: View {
             let historyEntry = historyEntry(for: media.mediaID)
             currentVideoID = media.mediaID
             currentSourceURL = sourceURL
+            currentVideoTitle = media.defaultTitle
+            playerCurrentTime = 0
+            playerDuration = 0
+            playerState = -1
 
             if media.providerID == "youtube" {
                 // Render through YouTube's official IFrame Player API (player.html),
                 // never by loading the youtube.com/watch page directly.
                 statusMessage = ""
-                loadYouTube(id: media.mediaID, start: Double(adjustedResumeStartTime(from: startTime)), autoplay: true)
+                let index = URLComponents(url: media.playbackURL, resolvingAgainstBaseURL: false)?
+                    .queryItems?.first(where: { $0.name == "index" })?.value.flatMap(Int.init) ?? 1
+                loadYouTube(id: media.mediaID, start: Double(adjustedResumeStartTime(from: startTime)), autoplay: true, playlistIndex: max(0, index - 1))
             } else {
                 // Non-YouTube providers (e.g. Disney+) load their page directly.
                 isYouTubeActive = false
                 playerPageLoaded = false
                 playerReady = false
-                webView.load(URLRequest(url: media.playbackURL))
+                statusMessage = ""
+                if media.playbackURL.isFileURL {
+                    webView.loadFileURL(media.playbackURL, allowingReadAccessTo: media.playbackURL)
+                } else {
+                    webView.load(URLRequest(url: media.playbackURL))
+                }
             }
 
             applyHistoryNotice(historyEntry)
@@ -579,15 +649,16 @@ struct ContentView: View {
 
     /// Routes a YouTube video to the IFrame player, queuing it if the player
     /// isn't ready yet. Never autoplays until the player page is mounted/ready.
-    private func loadYouTube(id: String, start: Double, autoplay: Bool) {
+    private func loadYouTube(id: String, start: Double, autoplay: Bool, playlistIndex: Int = 0) {
         isYouTubeActive = true
         ensurePlayerPage()
         if playerReady {
-            evaluatePlayer("window.ytLoad(\(jsString(id)), \(Int(start)), \(autoplay));")
+            evaluatePlayer("window.ytLoad(\(jsString(id)), \(Int(start)), \(autoplay), \(playlistIndex));")
         } else {
             pendingYouTubeID = id
             pendingYouTubeStart = start
             pendingYouTubeAutoplay = autoplay
+            pendingPlaylistIndex = playlistIndex
         }
     }
 
@@ -595,7 +666,7 @@ struct ContentView: View {
         playerReady = true
         if let id = pendingYouTubeID {
             pendingYouTubeID = nil
-            evaluatePlayer("window.ytLoad(\(jsString(id)), \(Int(pendingYouTubeStart)), \(pendingYouTubeAutoplay));")
+            evaluatePlayer("window.ytLoad(\(jsString(id)), \(Int(pendingYouTubeStart)), \(pendingYouTubeAutoplay), \(pendingPlaylistIndex));")
         }
         if playerVolume != 100 {
             evaluatePlayer("window.ytSetVolume(\(Int(playerVolume)));")
@@ -617,7 +688,10 @@ struct ContentView: View {
 
     // Native control-bar actions, all routed through documented IFrame API methods.
     private func playerTogglePlayPause() {
-        guard isYouTubeActive else { return }
+        if !isYouTubeActive {
+            evaluatePlayer("var v=document.querySelector('video'); if(v) { v.paused ? v.play() : v.pause(); window.nativePostPlaybackProgress && window.nativePostPlaybackProgress(); }")
+            return
+        }
         if playerState == 1 { // playing
             evaluatePlayer("window.ytPause();")
         } else {
@@ -626,13 +700,20 @@ struct ContentView: View {
     }
 
     private func playerSeek(to seconds: Double) {
-        guard isYouTubeActive else { return }
+        guard seconds.isFinite else { return }
+        if !isYouTubeActive {
+            evaluatePlayer("var v=document.querySelector('video'); if(v) v.currentTime=\(seconds);")
+            return
+        }
         evaluatePlayer("window.ytSeek(\(seconds));")
     }
 
     private func playerSetVolume(_ value: Double) {
         playerVolume = value
-        guard isYouTubeActive else { return }
+        if !isYouTubeActive {
+            evaluatePlayer("var v=document.querySelector('video'); if(v) v.volume=\(min(1, max(0, value / 100)));")
+            return
+        }
         evaluatePlayer("window.ytSetVolume(\(Int(value)));")
     }
 
@@ -751,7 +832,7 @@ struct ContentView: View {
         guard isTransparent else { return }
         DispatchQueue.main.async {
             guard let window = getWindow() else { return }
-            if hovering {
+            if hovering && NSEvent.pressedMouseButtons == 0 && !isDropTargeted {
                 // Mouse over: hide content completely and pass clicks through
                 contentOpacity = 0.0
                 window.ignoresMouseEvents = true
@@ -789,7 +870,7 @@ struct ContentView: View {
         guard isTransparent else { return }
         let mouseLocation = NSEvent.mouseLocation
         let contentRectInScreen = window.convertToScreen(window.contentLayoutRect)
-        let hoveringNow = contentRectInScreen.contains(mouseLocation)
+        let hoveringNow = contentRectInScreen.contains(mouseLocation) && NSEvent.pressedMouseButtons == 0 && !isDropTargeted
         if hoveringNow != isHovering {
             isHovering = hoveringNow
             handleHoverChange(hoveringNow)
@@ -915,6 +996,7 @@ struct ContentView: View {
     }
 
     private func ensureWindowFront(_ window: NSWindow) {
+        guard NSEvent.pressedMouseButtons == 0 else { return }
         applyAlwaysOnTopState(window)
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -923,6 +1005,8 @@ struct ContentView: View {
 
     private func updatePlaybackPosition(videoID: String, time: Double, title: String?) {
         DispatchQueue.main.async {
+            guard time.isFinite, time >= 0 else { return }
+            if playlistIndex != nil, currentVideoID != videoID { return }
             currentVideoID = videoID
             if let pageURL = webView.url?.absoluteString,
                StreamingProviderRegistry.shared.resolves(pageURL, to: videoID) {
@@ -1131,6 +1215,8 @@ final class YouTubeScriptMessageHandler: NSObject, WKScriptMessageHandler, WKNav
     var onPlayerStateChange: ((_ state: Int, _ time: Double, _ duration: Double) -> Void)?
     var onPlayerTick: ((_ videoId: String, _ time: Double, _ duration: Double, _ title: String, _ state: Int) -> Void)?
     var onPlayerError: ((_ message: String) -> Void)?
+    var onMediaEnded: ((String?) -> Void)?
+    var onPlaylistPosition: ((String, Int) -> Void)?
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         switch message.name {
@@ -1157,13 +1243,21 @@ final class YouTubeScriptMessageHandler: NSObject, WKScriptMessageHandler, WKNav
             let time = body["currentTime"] as? Double ?? 0
             let duration = body["duration"] as? Double ?? 0
             onPlayerStateChange?(state, time, duration)
-        case "time":
-            let videoId = body["videoId"] as? String ?? ""
+        case "time", "mediaTime":
+            let playlistID = body["playlistId"] as? String ?? ""
+            let videoId = playlistID.isEmpty ? (body["videoId"] as? String ?? "") : "youtube-playlist:" + playlistID
+            if !playlistID.isEmpty, let index = body["playlistIndex"] as? Int, index >= 0 {
+                onPlaylistPosition?(playlistID, index)
+            }
             let time = body["currentTime"] as? Double ?? 0
             let duration = body["duration"] as? Double ?? 0
             let title = body["title"] as? String ?? ""
             let state = body["state"] as? Int ?? -1
             onPlayerTick?(videoId, time, duration, title, state)
+        case "playlistEnded":
+            onMediaEnded?(nil)
+        case "mediaEnded":
+            if let sourceURL = body["sourceURL"] as? String { onMediaEnded?(sourceURL) }
         case "error":
             let code = body["code"] as? Int ?? -1
             let message: String

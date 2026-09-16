@@ -7,6 +7,28 @@ struct WebView: NSViewRepresentable {
     let onDrop: (String) -> Void
     let onTargetedChange: (Bool) -> Void
 
+    static func receiveDrop(_ providers: [NSItemProvider], onDrop: @escaping (String) -> Void) -> Bool {
+        let types = ["public.file-url", "public.url", "public.utf8-plain-text"]
+        for provider in providers {
+            guard let type = types.first(where: { provider.hasItemConformingToTypeIdentifier($0) }) else { continue }
+            provider.loadItem(forTypeIdentifier: type, options: nil) { item, error in
+                guard error == nil else { return }
+                let input: String?
+                if let url = item as? URL {
+                    input = url.absoluteString
+                } else if let data = item as? Data {
+                    input = String(data: data, encoding: .utf8)
+                } else {
+                    input = item as? String
+                }
+                guard let input, StreamingProviderRegistry.shared.resolve(input) != nil else { return }
+                DispatchQueue.main.async { onDrop(input) }
+            }
+            return true
+        }
+        return false
+    }
+
     func makeCoordinator() -> Coordinator {
         Coordinator(onDrop: onDrop, onTargetedChange: onTargetedChange)
     }
@@ -90,12 +112,12 @@ final class DropReceiverView: NSView {
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        registerForDraggedTypes([.URL, .string])
+        registerForDraggedTypes([.fileURL, .URL, .string])
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
-        registerForDraggedTypes([.URL, .string])
+        registerForDraggedTypes([.fileURL, .URL, .string])
     }
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
@@ -121,7 +143,10 @@ final class DropReceiverView: NSView {
             return false
         }
         coordinator?.onTargetedChange(false)
-        coordinator?.onDrop(droppedURL)
+        let onDrop = coordinator?.onDrop
+        DispatchQueue.main.async {
+            onDrop?(droppedURL)
+        }
         return true
     }
 
@@ -129,16 +154,16 @@ final class DropReceiverView: NSView {
         coordinator?.onTargetedChange(false)
     }
 
-    private func droppedURLString(from pasteboard: NSPasteboard) -> String? {
+    func droppedURLString(from pasteboard: NSPasteboard) -> String? {
         if let urls = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL],
-           let url = urls.first {
+           let url = urls.first(where: { StreamingProviderRegistry.shared.resolve($0.absoluteString) != nil }) {
             return url.absoluteString
         }
         if let strings = pasteboard.readObjects(forClasses: [NSString.self]) as? [String],
            let string = strings.first {
             let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return nil }
-            guard URL(string: trimmed) != nil else { return nil }
+            guard StreamingProviderRegistry.shared.resolve(trimmed) != nil else { return nil }
             return trimmed
         }
         return nil

@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		B1000010000000000000001 /* PlayerToolbar.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000010000000000000001 /* PlayerToolbar.swift */; };
+		B1000009000000000000001 /* PlaylistView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000009000000000000001 /* PlaylistView.swift */; };
 		B1000001000000000000001 /* YouTubePlayerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000001000000000000001 /* YouTubePlayerApp.swift */; };
 		B1000002000000000000001 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000002000000000000001 /* ContentView.swift */; };
 		B1000003000000000000001 /* WebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000003000000000000001 /* WebView.swift */; };
@@ -17,6 +19,8 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		B2000010000000000000001 /* PlayerToolbar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerToolbar.swift; sourceTree = "<group>"; };
+		B2000009000000000000001 /* PlaylistView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistView.swift; sourceTree = "<group>"; };
 		B3000001000000000000001 /* YouTubePlayer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = YouTubePlayer.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B2000001000000000000001 /* YouTubePlayerApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YouTubePlayerApp.swift; sourceTree = "<group>"; };
 		B2000002000000000000001 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -53,6 +57,8 @@
 				B2000006000000000000001 /* Assets.xcassets */,
 				B2000001000000000000001 /* YouTubePlayerApp.swift */,
 				B2000002000000000000001 /* ContentView.swift */,
+				B2000009000000000000001 /* PlaylistView.swift */,
+				B2000010000000000000001 /* PlayerToolbar.swift */,
 				B2000003000000000000001 /* WebView.swift */,
 				B2000004000000000000001 /* URLHelper.swift */,
 				B2000007000000000000001 /* StreamingProvider.swift */,
@@ -142,6 +148,8 @@
 			files = (
 				B1000001000000000000001 /* YouTubePlayerApp.swift in Sources */,
 				B1000002000000000000001 /* ContentView.swift in Sources */,
+				B1000009000000000000001 /* PlaylistView.swift in Sources */,
+				B1000010000000000000001 /* PlayerToolbar.swift in Sources */,
 				B1000003000000000000001 /* WebView.swift in Sources */,
 				B1000004000000000000001 /* URLHelper.swift in Sources */,
 				B1000006000000000000001 /* StreamingProvider.swift in Sources */,

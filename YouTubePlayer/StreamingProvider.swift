@@ -23,6 +23,22 @@ struct YouTubeProvider: StreamingProvider {
     let displayName = "YouTube"
 
     func resolve(_ input: String, startTime: Int?) -> StreamingMedia? {
+        if let url = URL(string: input.trimmingCharacters(in: .whitespacesAndNewlines)),
+           supports(url),
+           var components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+           let playlistID = components.queryItems?.first(where: { $0.name == "list" })?.value,
+           !playlistID.isEmpty {
+            if let startTime, startTime > 0 {
+                var items = components.queryItems ?? []
+                items.removeAll { $0.name == "t" }
+                items.append(URLQueryItem(name: "t", value: String(startTime)))
+                components.queryItems = items
+            }
+            return StreamingMedia(providerID: id, providerName: displayName,
+                                  mediaID: "youtube-playlist:" + playlistID,
+                                  playbackURL: components.url ?? url,
+                                  defaultTitle: "YouTube Playlist", canResumeWithURLParameter: true)
+        }
         guard let videoID = extractVideoID(from: input),
               let url = playbackURL(for: videoID, startTime: startTime) else { return nil }
         return StreamingMedia(
@@ -39,8 +55,10 @@ struct YouTubeProvider: StreamingProvider {
         var components = URLComponents()
         components.scheme = "https"
         components.host = "www.youtube.com"
-        components.path = "/watch"
-        var queryItems = [URLQueryItem(name: "v", value: mediaID)]
+        let isPlaylist = mediaID.hasPrefix("youtube-playlist:")
+        components.path = isPlaylist ? "/playlist" : "/watch"
+        var queryItems = [URLQueryItem(name: isPlaylist ? "list" : "v",
+                                      value: isPlaylist ? String(mediaID.dropFirst("youtube-playlist:".count)) : mediaID)]
         if let startTime, startTime > 0 {
             queryItems.append(URLQueryItem(name: "t", value: "\(startTime)"))
         }
@@ -49,12 +67,20 @@ struct YouTubeProvider: StreamingProvider {
     }
 
     func thumbnailURL(for mediaID: String) -> URL? {
-        URL(string: "https://i.ytimg.com/vi/\(mediaID)/mqdefault.jpg")
+        guard !mediaID.hasPrefix("youtube-playlist:") else { return nil }
+        return URL(string: "https://i.ytimg.com/vi/\(mediaID)/mqdefault.jpg")
+    }
+
+    private func supports(_ url: URL) -> Bool {
+        let host = url.host?.lowercased() ?? ""
+        return ["youtube.com", "youtube-nocookie.com", "youtu.be"].contains {
+            host == $0 || host.hasSuffix("." + $0)
+        }
     }
 
     private func extractVideoID(from input: String) -> String? {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let url = URL(string: trimmed) else { return nil }
+        guard let url = URL(string: trimmed), supports(url) else { return nil }
         let host = url.host?.lowercased() ?? ""
 
         if host.contains("youtu.be") {
@@ -120,10 +146,35 @@ struct DisneyPlusProvider: StreamingProvider {
     }
 }
 
+struct MP4Provider: StreamingProvider {
+    let id = "mp4"
+    let displayName = "MP4"
+
+    func resolve(_ input: String, startTime: Int?) -> StreamingMedia? {
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: trimmed),
+              ["file", "https", "http"].contains(url.scheme?.lowercased() ?? ""),
+              url.pathExtension.lowercased() == "mp4",
+              url.isFileURL || url.host != nil else { return nil }
+        return StreamingMedia(providerID: id, providerName: displayName,
+                              mediaID: "mp4:" + url.absoluteString, playbackURL: url,
+                              defaultTitle: url.deletingPathExtension().lastPathComponent,
+                              canResumeWithURLParameter: false)
+    }
+
+    func playbackURL(for mediaID: String, startTime: Int?) -> URL? {
+        guard mediaID.hasPrefix("mp4:") else { return nil }
+        return resolve(String(mediaID.dropFirst(4)), startTime: nil)?.playbackURL
+    }
+
+    func thumbnailURL(for mediaID: String) -> URL? { nil }
+}
+
 struct StreamingProviderRegistry {
     static let shared = StreamingProviderRegistry(providers: [
         YouTubeProvider(),
-        DisneyPlusProvider()
+        DisneyPlusProvider(),
+        MP4Provider()
     ])
 
     private let providers: [StreamingProvider]
@@ -153,6 +204,9 @@ struct StreamingProviderRegistry {
     }
 
     private func provider(for mediaID: String) -> StreamingProvider? {
+        if mediaID.hasPrefix("mp4:") {
+            return providers.first { $0.id == "mp4" }
+        }
         if mediaID.hasPrefix("disneyplus:") {
             return providers.first { $0.id == "disneyplus" }
         }
