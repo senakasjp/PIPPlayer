@@ -26,7 +26,7 @@ protocol StreamingProvider {
 ## Current Providers
 
 - `YouTubeProvider`: supports `youtube.com/watch?v=...` and `youtu.be/...`, creates resume URLs using the `t=` query parameter, and provides YouTube thumbnails.
-- `MP4Provider`: resolves local files and direct HTTP(S) `.mp4` URLs using the full URL as media identity.
+- `VideoFileProvider`: registered separately for MP4 and WebM; resolves local files and direct HTTP(S) URLs with the corresponding extension.
 - `DisneyPlusProvider`: supports `disneyplus.com` and subdomains, loads the original Disney+ URL, and stores a stable media ID from the Disney+ path.
 
 ## Flow
@@ -70,11 +70,11 @@ To add another service:
 - Disney+ resume is tracked locally when the page exposes a standard HTML `video` element, but Disney+ does not currently receive a URL start-time parameter.
 - If Disney+ requires browser capabilities or DRM paths that WebKit does not expose to third-party apps, the app can preserve login state but still may not be able to play protected video.
 
-## MP4 and Playlists
+## Video Files and Playlists
 
-MP4 URLs use the `MP4Provider`, with `mp4:` plus the complete URL as their identity. Local files load through WebKit's file API. YouTube playlists retain the `list` and `index` parameters and use the official IFrame playlist API.
+MP4 and WebM URLs use `VideoFileProvider`, with `mp4:` or `webm:` plus the complete URL as their identity. Local files load through WebKit's file API. YouTube playlists retain the `list` and `index` parameters and use the official IFrame playlist API.
 
-The native Playlist sheet uses system fonts and controls, semantic secondary/error colors, 24-point outer spacing and 12-point row insets. Its minimum size is 560 × 420 points. Users can add links or MP4 files, reorder, remove, clear, and play entries. The queue persists locally and advances on media completion. Drop feedback remains mounted and changes opacity, avoiding structural layout changes during dragging.
+The native Playlist sheet uses system fonts and controls, semantic secondary/error colors, 24-point outer spacing and 12-point row insets. Its minimum size is 560 × 420 points. Users can add links or MP4/WebM files, reorder, remove, clear, and play entries. The queue persists locally and advances on media completion. Drop feedback remains mounted and changes opacity, avoiding structural layout changes during dragging.
 
 ## Responsive Player Toolbar
 
@@ -82,7 +82,7 @@ Preserve the native macOS black video canvas and translucent overlay. The viewin
 
 - Material: dark ultra-thin system material over a 70% black tint, white foreground, secondary text at 75%, 10% white rim, 16% separators, black 25% shadow with 12-point radius and 4-point vertical offset.
 - Geometry tokens: 12-point horizontal toolbar padding and 16-point corner radius, 8-point control gap, 4-point tight gap, 32-point button targets, 56-point bar height, 18-point separators, 1-point rim. SF Symbols use 13-point semibold; time uses 11-point monospaced digits.
-- `PlayerToolbar` is the reusable primitive: play/pause, flexible seek, playlist, volume. At widths under 360 points, time labels move into the volume/options popover. At 360–599 points elapsed time appears. At 600 points and above, previous/next, both times, and a 96-point volume slider fit inline. Narrow layouts retain volume and previous/next inside the options popover. No minimum bar width forces the window larger.
+- `PlayerToolbar` is the reusable primitive: play/pause, flexible seek, playlist, volume. At widths under 360 points, time labels move into the volume/options popover. Elapsed time appears at 360 points. The expanded layout starts at 600 points for YouTube or 700 points when video zoom is available; previous/next, both times, and a 96-point volume slider fit inline. Narrow layouts retain volume and previous/next inside the options popover. No minimum bar width forces the window larger.
 - Targets remain 32 points instead of shrinking icons to fit. Buttons retain native focus, pressed, and keyboard behavior; all symbols have accessibility labels and help. Seek exposes elapsed and total time. Duration unavailable disables seeking, and invalid numeric progress is clamped safely.
 - Native popovers expose volume and queue navigation with 16-point padding, 12-point section gap and 220-point content width. No decorative motion is added; system interactions honor macOS preferences.
 - Verify the primitive at 280, 360, 600 and 900 points, including long durations and unavailable media. Web Lighthouse tooling is inapplicable to this native SwiftUI component.
@@ -95,4 +95,12 @@ The toolbar uses a 56-point dark floating surface, 16-point corners, 70% black t
 
 The September 16, 2026 Release build and regression checks passed. Native MP4 playback, completion events and queue advancement were exercised. Modern toolbar previews at 300 and 700 points, plus populated and empty playlist states, were inspected; independent visual and source-integrity review passed for the toolbar and populated playlist. Full VoiceOver interaction and measured contrast remain unverified.
 
-MP4 uses a main-frame progress bridge installed at document end. WebKit's standalone media-document audio classes are removed for MP4 so custom controls do not leave the video at audio-control height. YouTube playback remains on the IFrame API. Drag feedback stays mounted, accepted drops deliver asynchronously, and hover transparency is suppressed during active dragging. The original crash was not reproduced during verification.
+MP4 and WebM use a main-frame progress bridge installed at document end. WebKit's standalone media-document audio classes are removed for MP4/WebM so custom controls do not leave the video at audio-control height. YouTube playback remains on the IFrame API. Drag feedback stays mounted, accepted drops deliver asynchronously, and hover transparency is suppressed during active dragging. The original crash was not reproduced during verification.
+
+## WebM extension
+
+`VideoFileProvider` handles MP4 and WebM through separately registered `mp4` and `webm` identifiers. Existing MP4 history IDs remain unchanged. Both formats use the same native HTML video controls, progress/completion bridge, viewport styling and playlist file picker. WebM identity is `webm:` plus the full source URL.
+
+## Non-YouTube zoom
+
+Playback options includes a 100–300% video zoom slider and Reset for non-YouTube media. Zoom scales video from its center without resizing the window; overflow is clipped. The video and document canvas are opaque black so remaining letterbox/pillarbox margins stay black. Zoom starts at 100% for each new source. The existing popover typography, 12-point spacing and native slider/focus behavior apply. Wide toolbars retain inline volume and expose an options button when zoom is available; their expanded layout starts at 700 points in this case.

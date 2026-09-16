@@ -1,6 +1,6 @@
 # YouTube Player
 
-A native macOS mini-player for YouTube videos and playlists, local and linked MP4 files, and supported streaming pages. Includes a responsive floating toolbar, saved playback queues, menu bar controls, and watch history.
+A native macOS mini-player for YouTube videos and playlists, local and linked MP4/WebM files, and supported streaming pages. Includes a responsive floating toolbar, saved playback queues, menu bar controls, and watch history.
 
 ## YouTube API ToS / Developer Policy Compliance
 
@@ -28,7 +28,7 @@ must preserve these invariants:
 
 The JS↔Swift bridge uses a single `playerBridge` message channel and only documented
 IFrame methods: `loadVideoById`/`cueVideoById`, `playVideo`, `pauseVideo`, `seekTo`,
-`setVolume`, `loadPlaylist`/`cuePlaylist`, `nextVideo`/`previousVideo`, plus `onReady`/`onStateChange`/`onError`. MP4 uses native HTML video events through the WebKit bridge.
+`setVolume`, `loadPlaylist`/`cuePlaylist`, `nextVideo`/`previousVideo`, plus `onReady`/`onStateChange`/`onError`. MP4 and WebM use native HTML video events through the WebKit bridge.
 
 ## Features
 
@@ -39,10 +39,10 @@ IFrame methods: `loadVideoById`/`cueVideoById`, `playVideo`, `pauseVideo`, `seek
 - **Responsive Toolbar**: A dark floating SwiftUI toolbar with a prominent circular play/pause button, seeking, volume, and playlist access. Compact windows move secondary controls into Playback options.
 - **Minimal Viewing UI**: Hides only scrollbars; the YouTube player itself is shown unmodified
 
-### MP4 and Playlists
-- **MP4 playback**: Drop a local `.mp4` file or open a direct HTTP(S) MP4 URL. Codec support depends on macOS WebKit.
+### Video Files and Playlists
+- **MP4/WebM playback**: Drop a local `.mp4` or `.webm` file or open a direct HTTP(S) video URL. Codec support depends on macOS WebKit.
 - **YouTube playlists**: Open a URL containing `list=`; playlist position is preserved and previous/next controls navigate its entries.
-- **Saved queue**: Open **Player → Playlist…** with **⌘⇧P**, add links or multiple MP4 files, reorder or remove entries, and play an item. The queue persists locally and advances when playback ends.
+- **Saved queue**: Open **Player → Playlist…** with **⌘⇧P**, add links or multiple MP4/WebM files, reorder or remove entries, and play an item. The queue persists locally and advances when playback ends.
 - **Drop handling**: Supports URL, text, and file drops; unsupported inputs are rejected. Delivery is deferred to avoid changing layout during the native drop callback.
 
 ### Library and History
@@ -264,7 +264,7 @@ Version/17.0 Safari/605.1.15
 
 ### Opening Videos
 **Method 1: Drag & Drop**
-- Drop a YouTube video/playlist URL, direct MP4 URL, or local MP4 file on the player window
+- Drop a YouTube video/playlist URL, direct MP4/WebM URL, or local MP4/WebM file on the player window
 
 **Method 2: Menu Bar**
 - Click the menu bar icon → "Open URL..."
@@ -370,3 +370,11 @@ This project is provided as-is for educational and personal use.
 ## Credits
 
 Built with SwiftUI and WebKit for macOS.
+
+## WebM playback
+
+Local `.webm` files and direct HTTP(S) WebM URLs are supported by the native playback controls and saved queues. Drop a WebM onto the player or choose it through Playlist → Add Files. Playback depends on the codecs supported by the installed macOS WebKit; a generated VP9 WebM was verified to play, fill the viewport and emit completion on the development Mac.
+
+## Zooming non-YouTube videos
+
+Open Playback options (the sliders icon) and adjust **Video zoom** from 100% to 300%. **Reset to 100%** restores the original size. Zoom resets when a new source loads. MP4/WebM video and exposed side margins use a black canvas. YouTube keeps its existing player sizing controls.

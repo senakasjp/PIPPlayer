@@ -6,7 +6,7 @@ This is a native macOS SwiftUI/AppKit application with WebKit playback, not a Re
 
 - `YouTubePlayer/YouTubePlayerApp.swift`: application, menus, settings and watch history.
 - `YouTubePlayer/ContentView.swift`: playback coordination, window behavior and WebKit messaging.
-- `YouTubePlayer/StreamingProvider.swift`: YouTube, Disney+ and MP4 URL resolution.
+- `YouTubePlayer/StreamingProvider.swift`: YouTube, Disney+, MP4 and WebM URL resolution.
 - `YouTubePlayer/WebView.swift`: native web view and asynchronous drag/drop delivery.
 - `YouTubePlayer/player.html`: official YouTube IFrame API bridge, including playlists.
 - `YouTubePlayer/PlayerToolbar.swift`: responsive playback controls.
@@ -27,10 +27,12 @@ Run the regression checks documented in `Tests/README.md`. For UI changes, exerc
 - Preserve unrelated work and generated build artifacts already present in the workspace.
 - Keep provider resolution centralized; YouTube playback uses the documented IFrame API.
 - Keep drop feedback mounted and defer accepted-drop delivery; do not mutate window layout synchronously within native drag callbacks.
-- Preserve toolbar access to volume and queue navigation at compact widths.
+- Preserve toolbar access to volume and queue navigation at compact widths. Non-YouTube video zoom (100–300%) belongs in Playback options, resets per source, and keeps the video canvas black.
 - Use native semantic controls, accessibility labels and the documented design tokens.
 - Do not alter secrets, signing credentials, or Git internals. Do not publish, push or send external messages without user authorization.
 
 ## Current verification limits
 
 The reported drag crash was not reproduced during the September 16, 2026 checks. Drop handling was hardened, MP4 playback and queue advancement were exercised, and the Release build plus regression checks passed. Modern UI captures passed visual review; full VoiceOver operation and measured contrast were not audited.
+
+WebM and zoom verification: generated VP9 WebM played to completion using the actual injected bridge; 150% zoom produced the expected geometry and black video/body backgrounds. Native zoom increment and Reset were exercised. Codec availability depends on the installed macOS WebKit.
