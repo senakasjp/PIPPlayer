@@ -11,6 +11,7 @@ struct PlayerToolbar: View {
     var onPrevious: (() -> Void)?
     var onNext: (() -> Void)?
     let onPlaylist: () -> Void
+    var videoZoom: Binding<Double>? = nil
 
     @State private var showsOptions = false
 
@@ -25,7 +26,7 @@ struct PlayerToolbar: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let wide = geometry.size.width >= 600
+            let wide = geometry.size.width >= (videoZoom == nil ? 600 : 700)
             HStack(spacing: 8) {
                 if wide { queueNavigation }
                 Button(action: onToggle) {
@@ -52,8 +53,9 @@ struct PlayerToolbar: View {
                     timeLabel(safeDuration)
                     separator
                     volumeSlider
-                } else {
-                    control("speaker.wave.2.fill", "Playback options") { showsOptions.toggle() }
+                }
+                if !wide || videoZoom != nil {
+                    control("slider.horizontal.3", "Playback options") { showsOptions.toggle() }
                         .popover(isPresented: $showsOptions, arrowEdge: .bottom) { options }
                 }
                 separator
@@ -114,6 +116,20 @@ struct PlayerToolbar: View {
                 Text("Playlist")
                 Spacer()
                 queueNavigation
+            }
+            if let videoZoom {
+                Divider()
+                HStack {
+                    Text("Video zoom")
+                    Spacer()
+                    Text("\(Int(videoZoom.wrappedValue * 100))%")
+                        .monospacedDigit()
+                }
+                Slider(value: videoZoom, in: 1...3, step: 0.05)
+                    .accessibilityLabel("Video zoom")
+                    .accessibilityValue("\(Int(videoZoom.wrappedValue * 100)) percent")
+                Button("Reset to 100%") { videoZoom.wrappedValue = 1 }
+                    .disabled(videoZoom.wrappedValue == 1)
             }
         }
         .padding(16)

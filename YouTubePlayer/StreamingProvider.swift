@@ -146,25 +146,25 @@ struct DisneyPlusProvider: StreamingProvider {
     }
 }
 
-struct MP4Provider: StreamingProvider {
-    let id = "mp4"
-    let displayName = "MP4"
+struct VideoFileProvider: StreamingProvider {
+    let id: String
+    var displayName: String { id == "webm" ? "WebM" : "MP4" }
 
     func resolve(_ input: String, startTime: Int?) -> StreamingMedia? {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let url = URL(string: trimmed),
               ["file", "https", "http"].contains(url.scheme?.lowercased() ?? ""),
-              url.pathExtension.lowercased() == "mp4",
+              url.pathExtension.lowercased() == id,
               url.isFileURL || url.host != nil else { return nil }
         return StreamingMedia(providerID: id, providerName: displayName,
-                              mediaID: "mp4:" + url.absoluteString, playbackURL: url,
+                              mediaID: id + ":" + url.absoluteString, playbackURL: url,
                               defaultTitle: url.deletingPathExtension().lastPathComponent,
                               canResumeWithURLParameter: false)
     }
 
     func playbackURL(for mediaID: String, startTime: Int?) -> URL? {
-        guard mediaID.hasPrefix("mp4:") else { return nil }
-        return resolve(String(mediaID.dropFirst(4)), startTime: nil)?.playbackURL
+        guard mediaID.hasPrefix(id + ":") else { return nil }
+        return resolve(String(mediaID.dropFirst(id.count + 1)), startTime: nil)?.playbackURL
     }
 
     func thumbnailURL(for mediaID: String) -> URL? { nil }
@@ -174,7 +174,7 @@ struct StreamingProviderRegistry {
     static let shared = StreamingProviderRegistry(providers: [
         YouTubeProvider(),
         DisneyPlusProvider(),
-        MP4Provider()
+        VideoFileProvider(id: "mp4"), VideoFileProvider(id: "webm")
     ])
 
     private let providers: [StreamingProvider]
@@ -204,6 +204,7 @@ struct StreamingProviderRegistry {
     }
 
     private func provider(for mediaID: String) -> StreamingProvider? {
+        if mediaID.hasPrefix("webm:") { return providers.first { $0.id == "webm" } }
         if mediaID.hasPrefix("mp4:") {
             return providers.first { $0.id == "mp4" }
         }

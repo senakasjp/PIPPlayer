@@ -23,7 +23,7 @@ struct PlaylistView: View {
             }
             Divider()
             HStack {
-                TextField("YouTube, playlist, or MP4 URL", text: $newURL)
+                TextField("YouTube, playlist, MP4 or WebM URL", text: $newURL)
                     .textFieldStyle(.roundedBorder)
                     .onSubmit(addURL)
                 Button("Add", action: addURL)
@@ -40,7 +40,7 @@ struct PlaylistView: View {
                         .foregroundStyle(.secondary)
                         .padding(.bottom, 8)
                     Text("Your playlist is empty").font(.headline)
-                    Text("Add video links or MP4 files to play them in order.")
+                    Text("Add video links or MP4/WebM files to play them in order.")
                         .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -115,7 +115,7 @@ struct PlaylistView: View {
         let input = newURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !input.isEmpty else { return }
         guard StreamingProviderRegistry.shared.resolve(input) != nil else {
-            errorMessage = "Enter a supported video or playlist URL, or choose an MP4 file."
+            errorMessage = "Enter a supported video or playlist URL, or choose an MP4 or WebM file."
             return
         }
         urls.append(input)
@@ -125,7 +125,7 @@ struct PlaylistView: View {
 
     private func addFiles() {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.mpeg4Movie]
+        panel.allowedContentTypes = [.mpeg4Movie] + [UTType(filenameExtension: "webm")].compactMap { $0 }
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
         panel.prompt = "Add to Playlist"

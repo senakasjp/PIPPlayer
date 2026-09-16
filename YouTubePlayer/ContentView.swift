@@ -49,6 +49,7 @@ struct ContentView: View {
     @State private var playlistIndex: Int?
     @State private var showingPlaylist = false
     @State private var pendingPlaylistIndex = 0
+    @State private var videoZoom = 1.0
 
     init() {
         scriptHandler = YouTubeScriptMessageHandler()
@@ -88,14 +89,28 @@ struct ContentView: View {
             (function() {
                 const handler = window.webkit?.messageHandlers?.videoProgress;
                 if (!handler) { return; }
+                const hostName = window.location.hostname.toLowerCase();
+                const isYouTube = ['youtube.com', 'youtube-nocookie.com', 'youtu.be'].some(host => hostName === host || hostName.endsWith('.' + host));
+                window.nativeVideoZoom = 1;
+                window.setNativeVideoZoom = value => {
+                    if (isYouTube) { return; }
+                    window.nativeVideoZoom = Math.min(3, Math.max(1, Number(value) || 1));
+                    document.documentElement.style.backgroundColor = '#000';
+                    if (document.body) { document.body.style.backgroundColor = '#000'; }
+                    document.querySelectorAll('video').forEach(video => {
+                        video.style.backgroundColor = '#000';
+                        video.style.transformOrigin = 'center center';
+                        video.style.transform = 'scale(' + window.nativeVideoZoom + ')';
+                    });
+                };
 
                 const postProgress = () => {
                     const video = document.querySelector('video');
                     if (!video) { return; }
-                    if (window.location.pathname.toLowerCase().endsWith('.mp4')) {
+                    if (['mp4', 'webm'].includes(window.location.pathname.split('.').pop().toLowerCase())) {
                         video.classList.remove('media-document', 'audio');
                     }
-                    if (window.location.pathname.toLowerCase().endsWith('.mp4') && !video.nativePlaylistTracking) {
+                    if (['mp4', 'webm'].includes(window.location.pathname.split('.').pop().toLowerCase()) && !video.nativePlaylistTracking) {
                         video.nativePlaylistTracking = true;
                         video.controls = false;
                         video.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;max-width:none;max-height:none;margin:0;object-fit:contain';
@@ -104,20 +119,21 @@ struct ContentView: View {
                         });
                     }
                     const host = window.location.hostname.toLowerCase();
+                    window.setNativeVideoZoom(window.nativeVideoZoom);
                     const params = new URLSearchParams(window.location.search);
                     let videoId = '';
                     if (host.includes('youtube.com') || host.includes('youtu.be') || host.includes('youtube-nocookie.com')) {
                         videoId = params.get('v') || window.location.pathname.split('/').filter(Boolean).pop() || '';
                     } else if (host === 'disneyplus.com' || host.endsWith('.disneyplus.com')) {
                         videoId = 'disneyplus:' + (window.location.pathname || '/');
-                    } else if (window.location.pathname.toLowerCase().endsWith('.mp4')) {
-                        videoId = 'mp4:' + window.location.href;
+                    } else if (['mp4', 'webm'].includes(window.location.pathname.split('.').pop().toLowerCase())) {
+                        videoId = window.location.pathname.split('.').pop().toLowerCase() + ':' + window.location.href;
                     }
                     if (!videoId) { return; }
                     const titleNode = document.querySelector('ytd-watch-metadata h1 yt-formatted-string');
                     const title = (titleNode && titleNode.textContent ? titleNode.textContent : document.title || '').trim();
                     handler.postMessage({ videoId: videoId, currentTime: video.currentTime || 0, title: title });
-                    if (videoId.startsWith('mp4:')) {
+                    if (videoId.startsWith('mp4:') || videoId.startsWith('webm:')) {
                         window.webkit.messageHandlers.playerBridge.postMessage({event: 'mediaTime', videoId: videoId,
                             currentTime: video.currentTime || 0, duration: Number.isFinite(video.duration) ? video.duration : 0,
                             state: video.ended ? 0 : (video.paused ? 2 : 1), title: title});
@@ -140,7 +156,7 @@ struct ContentView: View {
                     window.addEventListener('beforeunload', postProgress);
                     window.addEventListener('yt-navigate-start', postProgress);
                     window.addEventListener('yt-navigate-finish', postProgress);
-                    if (window.location.pathname.toLowerCase().endsWith('.mp4')) {
+                    if (['mp4', 'webm'].includes(window.location.pathname.split('.').pop().toLowerCase())) {
                         new MutationObserver(postProgress).observe(document.documentElement, {childList: true, subtree: true});
                     }
                 };
@@ -190,7 +206,7 @@ struct ContentView: View {
     }
 
     // Bars are visible when hovered (or while the scrub slider is active).
-    private var barsVisible: Bool { (isHovering || isScrubbing || playerState != 1) && (isYouTubeActive || currentVideoID?.hasPrefix("mp4:") == true) }
+    private var barsVisible: Bool { (isHovering || isScrubbing || playerState != 1) && currentVideoID != nil }
 
     var body: some View {
         ZStack {
@@ -260,7 +276,7 @@ struct ContentView: View {
                             .font(.system(size: 20, weight: .semibold))
                             .foregroundColor(.white)
 
-                        Text("YouTube · Disney+ · MP4")
+                        Text("YouTube · Disney+ · MP4 · WebM")
                             .font(.system(size: 13, weight: .regular))
                             .foregroundColor(.white.opacity(0.6))
                     }
@@ -467,7 +483,11 @@ struct ContentView: View {
             onSeek: { playerSeek(to: playerCurrentTime) },
             onPrevious: previousPlaylistAction,
             onNext: nextPlaylistAction,
-            onPlaylist: { showingPlaylist = true }
+            onPlaylist: { showingPlaylist = true },
+            videoZoom: isYouTubeActive ? nil : Binding(get: { videoZoom }, set: {
+                videoZoom = $0
+                evaluatePlayer("window.setNativeVideoZoom && window.setNativeVideoZoom(\($0));")
+            })
         )
         .padding(.horizontal, 8)
         .padding(.bottom, 8)
@@ -513,7 +533,7 @@ struct ContentView: View {
     func promptForURL() {
         let alert = NSAlert()
         alert.messageText = "Open Streaming URL"
-        alert.informativeText = "Enter a YouTube, Disney+, or MP4 URL. You can also drop an MP4 file onto the player."
+        alert.informativeText = "Enter a YouTube, Disney+, MP4, or WebM URL. You can also drop a video file onto the player."
         alert.alertStyle = .informational
 
         let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 24))
@@ -598,6 +618,7 @@ struct ContentView: View {
             playerCurrentTime = 0
             playerDuration = 0
             playerState = -1
+            videoZoom = 1
 
             if media.providerID == "youtube" {
                 // Render through YouTube's official IFrame Player API (player.html),
