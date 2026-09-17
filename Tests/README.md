@@ -37,3 +37,17 @@ Evidence is saved under `build/UpdatedPlayer/verification/` with the packaged ap
 WebM regression coverage includes local and uppercase remote extensions with query parameters, provider naming, source URL round trips and file pasteboard decoding. A generated VP9 WebM was additionally exercised in native WebKit with the actual injected progress script, verifying playback, viewport geometry and completion events.
 
 Non-YouTube zoom checks: native WebM playback at 150% produced the expected scaled geometry, black video/body backgrounds and a completion event. The live options slider incremented from 100% to 105%; Reset returned it to 100%. Inspect zoom options at compact and wide sizes, and confirm YouTube does not expose this control.
+
+## Direct MKV playback
+
+Run `sh Scripts/setup-vlckit.sh` before building. The MKV regression uses the real bundled decoder and a native video window. Supply a valid 5–10 second MKV containing video and audio:
+
+```sh
+sh Scripts/test-mkv-playback.sh /absolute/path/to/short-test.mkv
+```
+
+It checks decoding, original source identity, resume, pause, seek, zoom geometry, exactly one completion event, stop cleanup, and invalid-file failure. Media/drop checks also cover MKV URLs, uppercase extensions, query strings, source round trips and file pasteboards.
+
+For a local ad-hoc signed Release build, add `ENABLE_HARDENED_RUNTIME=NO` to the build command. A distributed hardened build must sign the app and embedded framework with the same developer identity; ad-hoc signatures do not satisfy library validation.
+
+Native manual checks: add an MKV through Add Files, play it, pause and seek, change volume, zoom and reset, advance to another item, reopen from history, and switch between MKV and WebKit playback. Confirm no conversion step or external application is involved.

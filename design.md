@@ -104,3 +104,7 @@ MP4 and WebM use a main-frame progress bridge installed at document end. WebKit'
 ## Non-YouTube zoom
 
 Playback options includes a 100–300% video zoom slider and Reset for non-YouTube media. Zoom scales video from its center without resizing the window; overflow is clipped. The video and document canvas are opaque black so remaining letterbox/pillarbox margins stay black. Zoom starts at 100% for each new source. The existing popover typography, 12-point spacing and native slider/focus behavior apply. Wide toolbars retain inline volume and expose an options button when zoom is available; their expanded layout starts at 700 points in this case.
+
+### MKV playback
+
+`MKVPlayback.swift` uses the bundled VLCKit engine to decode MKV directly into a native video surface beneath the existing drop overlay. It reports playback state and timing to the existing controls, history and queue coordinator. MP4, WebM, Disney+ and YouTube retain their existing playback paths.

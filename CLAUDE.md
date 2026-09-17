@@ -6,7 +6,8 @@ This is a native macOS SwiftUI/AppKit application with WebKit playback, not a Re
 
 - `YouTubePlayer/YouTubePlayerApp.swift`: application, menus, settings and watch history.
 - `YouTubePlayer/ContentView.swift`: playback coordination, window behavior and WebKit messaging.
-- `YouTubePlayer/StreamingProvider.swift`: YouTube, Disney+, MP4 and WebM URL resolution.
+- `YouTubePlayer/StreamingProvider.swift`: YouTube, Disney+, MP4, WebM and MKV URL resolution.
+- `YouTubePlayer/MKVPlayback.swift`: direct MKV decoding and a native video surface using bundled VLCKit.
 - `YouTubePlayer/WebView.swift`: native web view and asynchronous drag/drop delivery.
 - `YouTubePlayer/player.html`: official YouTube IFrame API bridge, including playlists.
 - `YouTubePlayer/PlayerToolbar.swift`: responsive playback controls.
@@ -15,6 +16,8 @@ This is a native macOS SwiftUI/AppKit application with WebKit playback, not a Re
 Read `README.md` for usage, `design.md` for architecture and UI tokens, and `Tests/README.md` for checks.
 
 ## Build and verification
+
+Run `sh Scripts/setup-vlckit.sh` once before building to download the pinned native decoding framework.
 
 ```sh
 xcodebuild -project YouTubePlayer.xcodeproj -scheme YouTubePlayer -configuration Release -derivedDataPath /tmp/YouTubePlayerBuild build

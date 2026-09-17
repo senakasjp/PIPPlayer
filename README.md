@@ -40,6 +40,7 @@ IFrame methods: `loadVideoById`/`cueVideoById`, `playVideo`, `pauseVideo`, `seek
 - **Minimal Viewing UI**: Hides only scrollbars; the YouTube player itself is shown unmodified
 
 ### Video Files and Playlists
+- **MKV playback**: Open local `.mkv` files or direct HTTP(S) MKV URLs using the bundled VLC decoder. Supports the existing playback controls, history and playlists.
 - **MP4/WebM playback**: Drop a local `.mp4` or `.webm` file or open a direct HTTP(S) video URL. Codec support depends on macOS WebKit.
 - **YouTube playlists**: Open a URL containing `list=`; playlist position is preserved and previous/next controls navigate its entries.
 - **Saved queue**: Open **Player → Playlist…** with **⌘⇧P**, add links or multiple MP4/WebM files, reorder or remove entries, and play an item. The queue persists locally and advances when playback ends.
@@ -378,3 +379,11 @@ Local `.webm` files and direct HTTP(S) WebM URLs are supported by the native pla
 ## Zooming non-YouTube videos
 
 Open Playback options (the sliders icon) and adjust **Video zoom** from 100% to 300%. **Reset to 100%** restores the original size. Zoom resets when a new source loads. MP4/WebM video and exposed side margins use a black canvas. YouTube keeps its existing player sizing controls.
+
+### MKV playback
+
+Choose MKV through Playlist → Add Files, drop a file onto the player, or paste a direct `.mkv` URL. The bundled VLCKit engine decodes the original media directly, including its audio. Playback uses the existing pause, seek, volume, zoom, resume history and playlist controls. No conversion or separate player installation is required.
+
+Before building, run `sh Scripts/setup-vlckit.sh` to fetch the pinned official VLCKit framework. Xcode links and embeds it in the app.
+
+For a local ad-hoc signed build, use `xcodebuild -project YouTubePlayer.xcodeproj -scheme YouTubePlayer -configuration Release -derivedDataPath /tmp/YouTubePlayerBuild ENABLE_HARDENED_RUNTIME=NO build`. Distribution builds can keep hardened runtime enabled when the app and embedded framework are signed with the same developer identity.
