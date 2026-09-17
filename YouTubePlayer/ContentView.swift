@@ -2,6 +2,7 @@ import SwiftUI
 import WebKit
 struct ContentView: View {
     @EnvironmentObject var settings: AppSettings
+    @StateObject private var mkvPlayback = MKVPlayback()
     @State private var webView: WKWebView
     private let scriptHandler: YouTubeScriptMessageHandler
     @State private var isDropTargeted = false
@@ -215,6 +216,7 @@ struct ContentView: View {
 
             WebView(
                 webView: webView,
+                nativeVideoView: currentVideoID?.hasPrefix("mkv:") == true ? mkvPlayback.surface : nil,
                 onDrop: { droppedURL in
                     loadStreamingURL(droppedURL)
                 },
@@ -276,7 +278,7 @@ struct ContentView: View {
                             .font(.system(size: 20, weight: .semibold))
                             .foregroundColor(.white)
 
-                        Text("YouTube · Disney+ · MP4 · WebM")
+                        Text("YouTube · Disney+ · MP4 · WebM · MKV")
                             .font(.system(size: 13, weight: .regular))
                             .foregroundColor(.white.opacity(0.6))
                     }
@@ -371,8 +373,28 @@ struct ContentView: View {
             guard let closingWindow = notification.object as? NSWindow, closingWindow == getWindow() else { return }
             flushPlaybackPositionToDefaults()
             persistLastOpenedVideoFallback()
+            mkvPlayback.stop()
             pauseAndPersistCurrentPlayback()
             window = nil
+        }
+        .onReceive(mkvPlayback.updates) { snapshot in
+            guard snapshot.mediaID == currentVideoID, snapshot.sessionID == mkvPlayback.sessionID else { return }
+            if !isTransparent, let window = getWindow() {
+                updateHoverStateFromMouseLocation(window: window)
+            }
+            playerState = snapshot.state
+            playerDuration = snapshot.duration
+            if !isScrubbing { playerCurrentTime = snapshot.time }
+            if snapshot.state == 1 || snapshot.state == 2 {
+                updatePlaybackPosition(videoID: snapshot.mediaID, time: snapshot.time, title: currentVideoTitle)
+            } else if snapshot.state == 0 {
+                DispatchQueue.main.async {
+                    guard snapshot.mediaID == currentVideoID, snapshot.sessionID == mkvPlayback.sessionID else { return }
+                    advancePlaylist()
+                }
+            } else if snapshot.state == -1 {
+                statusMessage = "Unable to play this MKV file. Check the file or URL and try again."
+            }
         }
         .onAppear(perform: configurePlayback)
         .onDisappear {
@@ -386,6 +408,7 @@ struct ContentView: View {
     private func configurePlayback() {
         // Progress callback for non-YouTube (Disney+) pages.
         scriptHandler.onProgress = { videoId, time, title in
+            guard currentVideoID?.hasPrefix("mkv:") != true else { return }
             updatePlaybackPosition(videoID: videoId, time: time, title: title)
         }
         // IFrame Player API bridge callbacks.
@@ -421,6 +444,7 @@ struct ContentView: View {
         }
         scriptHandler.onPlayerTick = { videoId, time, duration, title, state in
             DispatchQueue.main.async {
+                guard isYouTubeActive || currentVideoID == videoId else { return }
                 playerState = state
                 if duration > 0 { playerDuration = duration }
                 if !isScrubbing { playerCurrentTime = time }
@@ -486,6 +510,7 @@ struct ContentView: View {
             onPlaylist: { showingPlaylist = true },
             videoZoom: isYouTubeActive ? nil : Binding(get: { videoZoom }, set: {
                 videoZoom = $0
+                mkvPlayback.surface.zoom = $0
                 evaluatePlayer("window.setNativeVideoZoom && window.setNativeVideoZoom(\($0));")
             })
         )
@@ -602,7 +627,7 @@ struct ContentView: View {
                 sourceURL = media.playbackURL.absoluteString
             }
 
-            if currentVideoID == media.mediaID, currentSourceURL == sourceURL, playerState != 0 {
+            if currentVideoID == media.mediaID, currentSourceURL == sourceURL, playerState > 0 {
                 currentVideoID = media.mediaID
                 currentSourceURL = sourceURL
                 applyHistoryNotice(historyEntry(for: media.mediaID))
@@ -611,6 +636,7 @@ struct ContentView: View {
                 }
                 return
             }
+            mkvPlayback.stop()
             let historyEntry = historyEntry(for: media.mediaID)
             currentVideoID = media.mediaID
             currentSourceURL = sourceURL
@@ -619,6 +645,7 @@ struct ContentView: View {
             playerDuration = 0
             playerState = -1
             videoZoom = 1
+            mkvPlayback.surface.zoom = 1
 
             if media.providerID == "youtube" {
                 // Render through YouTube's official IFrame Player API (player.html),
@@ -633,7 +660,10 @@ struct ContentView: View {
                 playerPageLoaded = false
                 playerReady = false
                 statusMessage = ""
-                if media.playbackURL.isFileURL {
+                if media.providerID == "mkv" {
+                    webView.loadHTMLString("", baseURL: nil)
+                    mkvPlayback.play(media, startTime: Double(adjustedResumeStartTime(from: startTime)), volume: playerVolume)
+                } else if media.playbackURL.isFileURL {
                     webView.loadFileURL(media.playbackURL, allowingReadAccessTo: media.playbackURL)
                 } else {
                     webView.load(URLRequest(url: media.playbackURL))
@@ -709,6 +739,10 @@ struct ContentView: View {
 
     // Native control-bar actions, all routed through documented IFrame API methods.
     private func playerTogglePlayPause() {
+        if currentVideoID?.hasPrefix("mkv:") == true {
+            mkvPlayback.togglePlayPause()
+            return
+        }
         if !isYouTubeActive {
             evaluatePlayer("var v=document.querySelector('video'); if(v) { v.paused ? v.play() : v.pause(); window.nativePostPlaybackProgress && window.nativePostPlaybackProgress(); }")
             return
@@ -722,6 +756,10 @@ struct ContentView: View {
 
     private func playerSeek(to seconds: Double) {
         guard seconds.isFinite else { return }
+        if currentVideoID?.hasPrefix("mkv:") == true {
+            mkvPlayback.seek(to: seconds)
+            return
+        }
         if !isYouTubeActive {
             evaluatePlayer("var v=document.querySelector('video'); if(v) v.currentTime=\(seconds);")
             return
@@ -731,6 +769,10 @@ struct ContentView: View {
 
     private func playerSetVolume(_ value: Double) {
         playerVolume = value
+        if currentVideoID?.hasPrefix("mkv:") == true {
+            mkvPlayback.setVolume(value)
+            return
+        }
         if !isYouTubeActive {
             evaluatePlayer("var v=document.querySelector('video'); if(v) v.volume=\(min(1, max(0, value / 100)));")
             return
@@ -888,7 +930,7 @@ struct ContentView: View {
     }
 
     private func updateHoverStateFromMouseLocation(window: NSWindow) {
-        guard isTransparent else { return }
+        guard isTransparent || currentVideoID?.hasPrefix("mkv:") == true else { return }
         let mouseLocation = NSEvent.mouseLocation
         let contentRectInScreen = window.convertToScreen(window.contentLayoutRect)
         let hoveringNow = contentRectInScreen.contains(mouseLocation) && NSEvent.pressedMouseButtons == 0 && !isDropTargeted
@@ -1050,6 +1092,10 @@ struct ContentView: View {
     }
 
     private func persistCurrentPlaybackPosition() {
+        if let snapshot = mkvPlayback.snapshot, snapshot.mediaID == currentVideoID {
+            updatePlaybackPosition(videoID: snapshot.mediaID, time: snapshot.time, title: currentVideoTitle)
+            return
+        }
         let script = "window.nativePostPlaybackProgress && window.nativePostPlaybackProgress();"
         DispatchQueue.main.async {
             webView.evaluateJavaScript(script)

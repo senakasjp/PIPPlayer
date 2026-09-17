@@ -148,7 +148,7 @@ struct DisneyPlusProvider: StreamingProvider {
 
 struct VideoFileProvider: StreamingProvider {
     let id: String
-    var displayName: String { id == "webm" ? "WebM" : "MP4" }
+    var displayName: String { id == "webm" ? "WebM" : id.uppercased() }
 
     func resolve(_ input: String, startTime: Int?) -> StreamingMedia? {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -174,7 +174,7 @@ struct StreamingProviderRegistry {
     static let shared = StreamingProviderRegistry(providers: [
         YouTubeProvider(),
         DisneyPlusProvider(),
-        VideoFileProvider(id: "mp4"), VideoFileProvider(id: "webm")
+        VideoFileProvider(id: "mp4"), VideoFileProvider(id: "webm"), VideoFileProvider(id: "mkv")
     ])
 
     private let providers: [StreamingProvider]
@@ -204,6 +204,7 @@ struct StreamingProviderRegistry {
     }
 
     private func provider(for mediaID: String) -> StreamingProvider? {
+        if mediaID.hasPrefix("mkv:") { return providers.first { $0.id == "mkv" } }
         if mediaID.hasPrefix("webm:") { return providers.first { $0.id == "webm" } }
         if mediaID.hasPrefix("mp4:") {
             return providers.first { $0.id == "mp4" }

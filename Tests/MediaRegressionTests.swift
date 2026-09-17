@@ -20,6 +20,13 @@ struct MediaRegressionTests {
             precondition(registry.playbackURL(for: media.mediaID) == media.playbackURL)
             precondition(registry.providerName(for: media.mediaID) == "WebM")
         }
+        for input in ["file:///tmp/My%20Movie.mkv", "https://example.com/movie.MKV?token=abc"] {
+            guard let media = registry.resolve(input) else { fatalError("MKV must resolve") }
+            precondition(media.providerID == "mkv")
+            precondition(registry.playbackURL(for: media.mediaID) == media.playbackURL)
+            precondition(registry.providerName(for: media.mediaID) == "MKV")
+        }
+        precondition(registry.resolve("javascript:movie.mkv") == nil)
         let receiver = DropReceiverView(frame: .zero)
         precondition(receiver.registeredDraggedTypes.contains(.fileURL), "Finder file drops must be registered")
         let board = NSPasteboard.withUniqueName()
@@ -39,6 +46,9 @@ struct MediaRegressionTests {
         board.clearContents()
         board.writeObjects([URL(fileURLWithPath: "/tmp/Video.webm") as NSURL])
         precondition(receiver.droppedURLString(from: board) == "file:///tmp/Video.webm")
+        board.clearContents()
+        board.writeObjects([URL(fileURLWithPath: "/tmp/My Movie.mkv") as NSURL])
+        precondition(receiver.droppedURLString(from: board) == "file:///tmp/My%20Movie.mkv")
         var received: String?
         precondition(WebView.receiveDrop([NSItemProvider(object: youtube as NSString)]) { received = $0 })
         let deadline = Date().addingTimeInterval(3)

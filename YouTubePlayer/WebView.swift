@@ -4,6 +4,7 @@ import AppKit
 
 struct WebView: NSViewRepresentable {
     let webView: WKWebView
+    var nativeVideoView: NSView? = nil
     let onDrop: (String) -> Void
     let onTargetedChange: (Bool) -> Void
 
@@ -35,12 +36,14 @@ struct WebView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> WebContainerView {
         let container = WebContainerView(webView: webView, coordinator: context.coordinator)
+        container.updateNativeVideoView(nativeVideoView)
         return container
     }
 
     func updateNSView(_ nsView: WebContainerView, context: Context) {
         nsView.updateCoordinator(context.coordinator)
         nsView.updateWebView(webView)
+        nsView.updateNativeVideoView(nativeVideoView)
     }
 
     final class Coordinator {
@@ -57,6 +60,7 @@ struct WebView: NSViewRepresentable {
 final class WebContainerView: NSView {
     private(set) var webView: WKWebView
     private let dropView = DropReceiverView()
+    private var nativeVideoView: NSView?
 
     init(webView: WKWebView, coordinator: WebView.Coordinator) {
         self.webView = webView
@@ -86,6 +90,22 @@ final class WebContainerView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    func updateNativeVideoView(_ view: NSView?) {
+        guard nativeVideoView !== view else { return }
+        nativeVideoView?.removeFromSuperview()
+        nativeVideoView = view
+        webView.isHidden = view != nil
+        guard let view else { return }
+        view.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(view, positioned: .below, relativeTo: dropView)
+        NSLayoutConstraint.activate([
+            view.leadingAnchor.constraint(equalTo: leadingAnchor),
+            view.trailingAnchor.constraint(equalTo: trailingAnchor),
+            view.topAnchor.constraint(equalTo: topAnchor),
+            view.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
     }
 
     func updateCoordinator(_ coordinator: WebView.Coordinator) {
