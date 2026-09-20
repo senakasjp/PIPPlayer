@@ -1,110 +1,173 @@
-# Streaming Provider Design
+# Player Design
 
-## Goal
+This document describes the current native macOS player and its agreed behavior.
+The user's player screenshot supplies the visual direction; subsequent requests
+for smaller controls, video behind the top bar, playlist file deletion, and
+shuffle take precedence over the original screenshot's dimensions.
 
-Extend the macOS player beyond YouTube while keeping provider-specific behavior isolated, portable, and easy to expand.
+## Visual direction
 
-## Pattern
+Use the playing video as the main surface, with a centered title and a compact,
+two-row floating control panel near the bottom. The timeline uses a coral-orange
+played segment, a subdued remaining track, and a white circular scrubber.
+Place volume on the left, transport controls in the center, and utilities on the
+right. Keep native macOS window buttons and SF Symbols.
 
-The app uses the Strategy pattern through `StreamingProvider`.
+Video imagery and titles come from the actual media. The reference's boats and
+sample filename are not app assets or fixed content.
 
-Each streaming service implements the same interface:
+## Colors and materials
 
-```swift
-protocol StreamingProvider {
-    var id: String { get }
-    var displayName: String { get }
+| Element | Value |
+| --- | --- |
+| Panel | `#273849`, 94% opacity over ultra-thin material |
+| Accent | `#FF694A` |
+| Primary text and icons | White |
+| Timestamps | White at 85% |
+| Enabled timeline track | White at 35% |
+| Disabled timeline track | White at 15% |
+| Volume background and fill | White at 35% each, composited |
+| Panel border | White at 6% |
+| Panel shadow | Black at 20%, radius 12pt, downward offset 4pt |
+| Active playlist row | Accent at 16% |
+| Other playlist rows | White at 4% |
 
-    func resolve(_ input: String, startTime: Int?) -> StreamingMedia?
-    func playbackURL(for mediaID: String, startTime: Int?) -> URL?
-    func thumbnailURL(for mediaID: String) -> URL?
-}
-```
+`PlayerChrome` owns the shared palette, panel dimensions, and typography tokens.
 
-`StreamingProviderRegistry` owns the list of strategies and is the only place that selects a provider. The UI asks the registry to resolve an input URL and then loads the returned `StreamingMedia` in `WKWebView`.
+## Compact player controls
 
-## Current Providers
+The compact dimensions below are the current specification, replacing the larger
+control bar in the original reference.
 
-- `YouTubeProvider`: supports `youtube.com/watch?v=...` and `youtu.be/...`, creates resume URLs using the `t=` query parameter, and provides YouTube thumbnails.
-- `VideoFileProvider`: registered separately for MP4 and WebM; resolves local files and direct HTTP(S) URLs with the corresponding extension.
-- `DisneyPlusProvider`: supports `disneyplus.com` and subdomains, loads the original Disney+ URL, and stores a stable media ID from the Disney+ path.
+| Element | Size or spacing |
+| --- | --- |
+| Panel height / corner radius | 72pt / 10pt |
+| Panel outer inset | 8pt horizontally and below |
+| Panel inner padding | 14pt horizontal, 8pt vertical |
+| Timeline row / control row | 20pt / 28pt |
+| Gap between rows | 4pt |
+| Timeline track / scrubber diameter | 3pt / 12pt |
+| Volume block | 88 × 26pt, 6pt corner radius |
+| Utility and previous/next icons | 16pt semibold |
+| Play/pause icon | 24pt semibold |
+| Utility button hit area | 28 × 28pt |
+| Play/pause hit area | 36 × 28pt |
+| Transport spacing | 8pt |
+| Timestamps | 11pt medium, monospaced digits |
 
-## Flow
+Show elapsed time and total duration at opposite ends of the timeline. Disable
+seeking when duration is unavailable. Previous and next buttons use the existing
+playlist actions and are disabled when no corresponding item is available.
 
-1. User opens, pastes, or drops a URL.
-2. `ContentView` calls `StreamingProviderRegistry.resolve(...)`.
-3. The matching provider returns `StreamingMedia` with `mediaID`, `playbackURL`, display name, and resume capability.
-4. `ContentView` loads `playbackURL` into the shared `WKWebView`.
-5. The injected progress script detects the active provider from `window.location.hostname` and posts progress with the provider-specific `mediaID`.
-6. `AppSettings` records history using the `mediaID` and stores `sourceURL` so non-YouTube entries can be reopened exactly.
+At toolbar widths of 480pt or more, show the volume block, fullscreen,
+always-on-top, playback settings, and playlist controls. Below 480pt, use a mute
+button and keep fullscreen and always-on-top available in playback settings.
+Keep transport centered independently of the side groups.
 
-## Web Session Robustness
+Playback settings includes volume, fullscreen, always-on-top, and video zoom for
+supported non-YouTube playback. The utilities reflect supported app functions;
+separate AirPlay and picture-in-picture engines are outside this UI change.
 
-- The player uses `WKWebsiteDataStore.default()` so cookies, local storage, and login sessions persist across app launches.
-- JavaScript is explicitly enabled, and JavaScript-created windows are allowed.
-- Login links that request a new browser window or popup are loaded back into the same player web view instead of being dropped.
-- JavaScript alert and confirm panels are bridged to native `NSAlert` dialogs so provider login flows can complete when they require confirmation.
+## Title and top bar
 
-## Extending
+Video extends to the top window edge behind the native window buttons. The main
+scene uses the hidden-titlebar window style, and the player ignores the titlebar
+safe area. Keep a 28pt opaque black backing strip underneath the video at the top,
+so this area does not expose the desktop when video opacity changes.
 
-To add another service:
+Use a 24pt semibold system-font title, centered within a 36pt row with a 40pt top
+inset and 24pt horizontal padding. Keep it on one line with middle truncation and
+retain the full title in the view's text/help. Apply a subtle dark text shadow.
 
-1. Add a new type that conforms to `StreamingProvider`.
-2. Implement URL recognition in `resolve`.
-3. Return a stable `mediaID` that will not collide with other providers. Prefix non-YouTube IDs with the provider ID, for example `netflix:/watch/...`.
-4. Implement `playbackURL(for:startTime:)`. Return the original content URL if the service does not support URL-based resume.
-5. Optionally implement `thumbnailURL(for:)`.
-6. Register the provider in `StreamingProviderRegistry.shared`.
-7. Extend the progress script in `ContentView` if the provider needs custom media ID extraction from the loaded page.
+Existing hover-transparency behavior remains for the rest of the player. The
+control overlay follows the existing hover, paused, and scrubbing visibility rules.
 
-## Portability Notes
+## Playlist
 
-- The core player remains `WKWebView` based, so each provider is loaded as its normal web app rather than through private APIs.
-- Provider-specific parsing is kept out of the SwiftUI views except for web progress extraction.
-- Existing YouTube history IDs are preserved as raw YouTube video IDs for compatibility with persisted data.
-- Non-YouTube providers use prefixed IDs to avoid collisions.
+Use a dark slate sheet with the same coral accent, white text, a 24pt semibold
+heading, 24pt outer padding, and rounded row highlights. Row titles use native
+body typography with medium weight; metadata uses native caption typography.
+Highlight the currently playing entry with the accent tint and a speaker icon.
 
-## Limits
+Provide:
 
-- Disney+ playback depends on what Disney+ allows inside macOS `WKWebView`, including authentication, DRM, and regional availability.
-- Disney+ resume is tracked locally when the page exposes a standard HTML `video` element, but Disney+ does not currently receive a URL start-time parameter.
-- If Disney+ requires browser capabilities or DRM paths that WebKit does not expose to third-party apps, the app can preserve login state but still may not be able to play protected video.
+- Add URL and Add Files actions for supported media.
+- Play, move up, move down, and remove-from-playlist row actions.
+- Clear Playlist, Shuffle, and Done actions in the footer.
+- An empty state explaining how to add videos.
+- Visible error messages when adding or trashing a file fails.
 
-## Video Files and Playlists
+### Removing entries and original files
 
-MP4 and WebM URLs use `VideoFileProvider`, with `mp4:` or `webm:` plus the complete URL as their identity. Local files load through WebKit's file API. YouTube playlists retain the `list` and `index` parameters and use the official IFrame playlist API.
+Keep these actions separate:
 
-The native Playlist sheet uses system fonts and controls, semantic secondary/error colors, 24-point outer spacing and 12-point row insets. Its minimum size is 560 × 420 points. Users can add links or MP4/WebM files, reorder, remove, clear, and play entries. The queue persists locally and advances on media completion. Drop feedback remains mounted and changes opacity, avoiding structural layout changes during dragging.
+- **Remove from playlist:** remove only the selected entry; leave the file intact.
+- **Move Original File to Trash:** available for local video files, with a
+  confirmation that names the file and explains that the original moves to macOS
+  Trash and can be restored from there.
 
-## Responsive Player Toolbar
+Only local regular MP4, WebM, and MKV files can be trashed. Reject remote URLs,
+directories, unsupported files, and missing files. Use the macOS Trash operation,
+not permanent deletion. Cancellation changes nothing. On failure, preserve the
+playlist and show the error. After success, remove matching playlist references,
+stop playback if it was the active file, and remove its saved position and history.
 
-Preserve the native macOS black video canvas and translucent overlay. The viewing persona needs reliable playback in a small floating window; keyboard and VoiceOver users need named controls at every size.
+### Shuffle
 
-- Material: dark ultra-thin system material over a 70% black tint, white foreground, secondary text at 75%, 10% white rim, 16% separators, black 25% shadow with 12-point radius and 4-point vertical offset.
-- Geometry tokens: 12-point horizontal toolbar padding and 16-point corner radius, 8-point control gap, 4-point tight gap, 32-point button targets, 56-point bar height, 18-point separators, 1-point rim. SF Symbols use 13-point semibold; time uses 11-point monospaced digits.
-- `PlayerToolbar` is the reusable primitive: play/pause, flexible seek, playlist, volume. At widths under 360 points, time labels move into the volume/options popover. Elapsed time appears at 360 points. The expanded layout starts at 600 points for YouTube or 700 points when video zoom is available; previous/next, both times, and a 96-point volume slider fit inline. Narrow layouts retain volume and previous/next inside the options popover. No minimum bar width forces the window larger.
-- Targets remain 32 points instead of shrinking icons to fit. Buttons retain native focus, pressed, and keyboard behavior; all symbols have accessibility labels and help. Seek exposes elapsed and total time. Duration unavailable disables seeking, and invalid numeric progress is clamped safely.
-- Native popovers expose volume and queue navigation with 16-point padding, 12-point section gap and 220-point content width. No decorative motion is added; system interactions honor macOS preferences.
-- Verify the primitive at 280, 360, 600 and 900 points, including long durations and unavailable media. Web Lighthouse tooling is inapplicable to this native SwiftUI component.
+The footer's Shuffle menu offers:
 
-## Modern native polish
+- **Shuffle all videos:** randomize the entire visible playlist order.
+- **Shuffle remaining videos:** preserve the current entry and preceding entries,
+  and randomize only those after the current video.
 
-The toolbar uses a 56-point dark floating surface, 16-point corners, 70% black tint and a restrained 10% white edge. A 32-point white circular play/pause button is the primary action; secondary controls remain white symbols. Preserve the existing responsive breakpoints and native keyboard focus. Playlist uses a 24-point inset, 24-point semibold heading, 12-point supporting copy, 12-point row inset, 8-point row corners and a subtle accent tint for the playing row. A 40-point SF Symbol anchors the empty state; input and footer are separated from the queue by native dividers. System colors adapt to light/dark appearance. No decorative animation, new dependency or artwork is needed.
+Disable all-shuffle with fewer than two entries. Disable remaining-shuffle when
+there is no current playlist position or fewer than two upcoming entries.
+Shuffling changes the saved playlist order without restarting current playback;
+the active-item highlight follows the playing video to its new position.
 
-## Verification and playback boundaries
+## Playback and keyboard behavior
 
-The September 16, 2026 Release build and regression checks passed. Native MP4 playback, completion events and queue advancement were exercised. Modern toolbar previews at 300 and 700 points, plus populated and empty playlist states, were inspected; independent visual and source-integrity review passed for the toolbar and populated playlist. Full VoiceOver interaction and measured contrast remain unverified.
+- **Space:** play or pause; holding Space does not repeatedly toggle playback.
+- **Left / Right:** seek backward or forward by five seconds.
+- Preserve text editing, dialog input, and native slider keyboard interaction.
+- Save playback positions per video in local persistent preferences and restore
+  them when reopening media, including after restarting the app.
+- Restore local-video positions after metadata is ready; initial loading must not
+  overwrite the saved position with zero.
+- Save YouTube pause updates promptly and resume without the former five-second
+  rewind.
 
-MP4 and WebM use a main-frame progress bridge installed at document end. WebKit's standalone media-document audio classes are removed for MP4/WebM so custom controls do not leave the video at audio-control height. YouTube playback remains on the IFrame API. Drag feedback stays mounted, accepted drops deliver asynchronously, and hover transparency is suppressed during active dragging. The original crash was not reproduced during verification.
+## Components, accessibility, and motion
 
-## WebM extension
+`PlayerToolbar` composes the timeline, transport, volume, and utility controls.
+`PlayerSlider` wraps a native `NSSlider` with custom drawing, retaining native
+mouse interaction and accessible slider values. `PlaylistView` owns the playlist
+sheet and confirmations; playback and successful file-removal callbacks connect
+to `ContentView`.
 
-`VideoFileProvider` handles MP4 and WebM through separately registered `mp4` and `webm` identifiers. Existing MP4 history IDs remain unchanged. Both formats use the same native HTML video controls, progress/completion bridge, viewport styling and playlist file picker. WebM identity is `webm:` plus the full source URL.
+Use named buttons, tooltips, readable contrast, monospaced timestamps, and native
+focus behavior. Hide decorative speaker imagery from accessibility. Support
+Unicode titles and truncate rather than wrapping over the video. Respect Reduce
+Motion for the existing 0.18-second control-overlay opacity transition.
 
-## Non-YouTube zoom
+## Verification and delivery
 
-Playback options includes a 100–300% video zoom slider and Reset for non-YouTube media. Zoom scales video from its center without resizing the window; overflow is clipped. The video and document canvas are opaque black so remaining letterbox/pillarbox margins stay black. Zoom starts at 100% for each new source. The existing popover typography, 12-point spacing and native slider/focus behavior apply. Wide toolbars retain inline volume and expose an options button when zoom is available; their expanded layout starts at 700 points in this case.
+Verify the native app through its actual macOS UI. Browser-only Lighthouse and
+React tooling do not apply to this SwiftUI/AppKit surface.
 
-### MKV playback
+The implementation was checked at 790 × 444pt and 376 × 212pt player sizes, plus
+the playlist, playback settings, and file-Trash confirmation. Live checks covered
+seeking, Space/arrow controls, volume, adding entries, both shuffle choices, and
+cancelling file deletion. A disposable-file test exercised the actual Trash
+operation and rejection of remote URLs, directories, and missing files.
 
-`MKVPlayback.swift` uses the bundled VLCKit engine to decode MKV directly into a native video surface beneath the existing drop overlay. It reports playback state and timing to the existing controls, history and queue coordinator. MP4, WebM, Disney+ and YouTube retain their existing playback paths.
+Release builds, code-signature verification, and playback/playlist bridge
+regression checks passed. The app was copied to `/Applications/YouTubePlayer.app`
+and launched, with the previous installation backed up.
+
+Evidence and review reports:
+
+- `.omo/evidence/player-ui/verification.md`
+- `.omo/evidence/player-ui/`
+- `.omo/evidence/native-player-ui-gate-review.md`
+- `.omo/evidence/native-player-ui-clone-fidelity.md`
