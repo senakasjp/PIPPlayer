@@ -7,6 +7,7 @@ struct WebView: NSViewRepresentable {
     var nativeVideoView: NSView? = nil
     let onDrop: (String) -> Void
     let onTargetedChange: (Bool) -> Void
+    var onPlaybackKey: (UInt16) -> Bool = { _ in false }
 
     static func receiveDrop(_ providers: [NSItemProvider], onDrop: @escaping (String) -> Void) -> Bool {
         let types = ["public.file-url", "public.url", "public.utf8-plain-text"]
@@ -37,6 +38,7 @@ struct WebView: NSViewRepresentable {
     func makeNSView(context: Context) -> WebContainerView {
         let container = WebContainerView(webView: webView, coordinator: context.coordinator)
         container.updateNativeVideoView(nativeVideoView)
+        container.onPlaybackKey = onPlaybackKey
         return container
     }
 
@@ -44,6 +46,7 @@ struct WebView: NSViewRepresentable {
         nsView.updateCoordinator(context.coordinator)
         nsView.updateWebView(webView)
         nsView.updateNativeVideoView(nativeVideoView)
+        nsView.onPlaybackKey = onPlaybackKey
     }
 
     final class Coordinator {
@@ -61,6 +64,32 @@ final class WebContainerView: NSView {
     private(set) var webView: WKWebView
     private let dropView = DropReceiverView()
     private var nativeVideoView: NSView?
+    var onPlaybackKey: (UInt16) -> Bool = { _ in false }
+    private var keyboardMonitor: Any?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let keyboardMonitor {
+            NSEvent.removeMonitor(keyboardMonitor)
+            self.keyboardMonitor = nil
+        }
+        guard window != nil else { return }
+        keyboardMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self, let window = self.window,
+                  window.isKeyWindow, event.window === window,
+                  window.attachedSheet == nil, NSApp.modalWindow == nil,
+                  !(window.firstResponder is NSTextView),
+                  !(window.firstResponder is NSSlider),
+                  event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty,
+                  [UInt16(49), 123, 124].contains(event.keyCode) else { return event }
+            if event.keyCode == 49 && event.isARepeat { return nil }
+            return self.onPlaybackKey(event.keyCode) ? nil : event
+        }
+    }
+
+    deinit {
+        if let keyboardMonitor { NSEvent.removeMonitor(keyboardMonitor) }
+    }
 
     init(webView: WKWebView, coordinator: WebView.Coordinator) {
         self.webView = webView

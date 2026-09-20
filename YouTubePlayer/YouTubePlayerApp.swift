@@ -639,6 +639,7 @@ struct YouTubePlayerApp: App {
                 .environmentObject(settings)
                 .background(WindowCommandBridge())
         }
+        .windowStyle(.hiddenTitleBar)
         .commands {
             PlayerCommands(settings: settings)
         }

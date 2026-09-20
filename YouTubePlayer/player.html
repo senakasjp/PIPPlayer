@@ -144,6 +144,12 @@
     window.ytPlay = function () { try { if (player) player.playVideo(); } catch (e) {} };
     window.ytPause = function () { try { if (player) player.pauseVideo(); } catch (e) {} };
     window.ytSeek = function (seconds) { try { if (player) player.seekTo(seconds, true); } catch (e) {} };
+    window.ytSeekRelative = function (seconds) {
+      if (!player || !player.getCurrentTime || !player.seekTo) return;
+      const duration = player.getDuration();
+      const target = Math.max(0, player.getCurrentTime() + seconds);
+      player.seekTo(duration > 0 ? Math.min(duration, target) : target, true);
+    };
     window.ytSetVolume = function (v) { try { if (player) player.setVolume(v); } catch (e) {} };
     window.ytGetState = function () { return safeState(); };
 

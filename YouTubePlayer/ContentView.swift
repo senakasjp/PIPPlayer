@@ -2,6 +2,7 @@ import SwiftUI
 import WebKit
 struct ContentView: View {
     @EnvironmentObject var settings: AppSettings
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @StateObject private var mkvPlayback = MKVPlayback()
     @State private var webView: WKWebView
     private let scriptHandler: YouTubeScriptMessageHandler
@@ -108,6 +109,11 @@ struct ContentView: View {
                 const postProgress = () => {
                     const video = document.querySelector('video');
                     if (!video) { return; }
+                    if (video.readyState < 1) { return; }
+                    if (window.nativeResumeTime > 0) {
+                        video.currentTime = Math.min(window.nativeResumeTime, Number.isFinite(video.duration) ? video.duration : window.nativeResumeTime);
+                        window.nativeResumeTime = 0;
+                    }
                     if (['mp4', 'webm'].includes(window.location.pathname.split('.').pop().toLowerCase())) {
                         video.classList.remove('media-document', 'audio');
                     }
@@ -148,7 +154,7 @@ struct ContentView: View {
                     setInterval(postProgress, 1000);
                     const video = document.querySelector('video');
                     if (video) {
-                        ['pause', 'seeking', 'seeked', 'ended'].forEach((eventName) => {
+                        ['loadedmetadata', 'pause', 'seeking', 'seeked', 'ended'].forEach((eventName) => {
                             video.addEventListener(eventName, postProgress);
                         });
                     }
@@ -211,8 +217,11 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
-            Color.clear
-                .edgesIgnoringSafeArea(.all)
+            VStack(spacing: 0) {
+                Color.black.frame(height: 28)
+                Spacer(minLength: 0)
+            }
+            .allowsHitTesting(false)
 
             WebView(
                 webView: webView,
@@ -226,7 +235,8 @@ struct ContentView: View {
                             isDropTargeted = isTargeted
                         }
                     }
-                }
+                },
+                onPlaybackKey: handlePlaybackKey
             )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .opacity(contentOpacity)
@@ -293,13 +303,15 @@ struct ContentView: View {
             // Hover-only overlay bars — top title strip + bottom controls.
             // Visible only while the mouse is over the window (or scrubbing).
             VStack {
+                playerTopBar
                 Spacer()
                 playerControlBar
             }
             .opacity(barsVisible && !isTransparent ? 1 : 0)
-            .animation(.easeInOut(duration: 0.18), value: barsVisible)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: barsVisible)
             .allowsHitTesting(barsVisible && !isTransparent)
         }
+        .ignoresSafeArea()
         .onHover { hovering in
             isHovering = hovering
             handleHoverChange(hovering)
@@ -311,7 +323,7 @@ struct ContentView: View {
             showingPlaylist = true
         }
         .sheet(isPresented: $showingPlaylist) {
-            PlaylistView(urls: $playlistURLs, currentIndex: playlistIndex) { index in
+            PlaylistView(urls: $playlistURLs, currentIndex: playlistIndex, onFileTrashed: handleTrashedFile) { index in
                 playPlaylistItem(index)
             }
         }
@@ -449,7 +461,7 @@ struct ContentView: View {
                 if duration > 0 { playerDuration = duration }
                 if !isScrubbing { playerCurrentTime = time }
                 if !title.isEmpty { currentVideoTitle = title }
-                if !videoId.isEmpty, duration > 0, (state == 1 || state == 2), time > 0 {
+                if !videoId.isEmpty, duration > 0, (state == 1 || state == 2), time >= 0 {
                     updatePlaybackPosition(videoID: videoId, time: time, title: title.isEmpty ? nil : title)
                 }
             }
@@ -479,21 +491,18 @@ struct ContentView: View {
         HStack {
             Spacer(minLength: 0)
             Text(currentVideoTitle)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(.white.opacity(0.85))
+                .font(.system(size: PlayerChrome.titleSize, weight: .semibold))
+                .foregroundColor(.white)
                 .lineLimit(1)
-                .truncationMode(.tail)
-                .padding(.horizontal, 16)
+                .truncationMode(.middle)
+                .padding(.horizontal, 24)
+                .help(currentVideoTitle)
+                .shadow(color: .black.opacity(0.5), radius: 4, y: 2)
             Spacer(minLength: 0)
         }
         .frame(height: 36)
-        .background(
-            LinearGradient(
-                colors: [.black.opacity(0.55), .clear],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        )
+        .padding(.top, 40)
+        .allowsHitTesting(false)
     }
 
     private var playerControlBar: some View {
@@ -508,14 +517,17 @@ struct ContentView: View {
             onPrevious: previousPlaylistAction,
             onNext: nextPlaylistAction,
             onPlaylist: { showingPlaylist = true },
+            onFullscreen: { getWindow()?.toggleFullScreen(nil) },
+            onAlwaysOnTop: { setAlwaysOnTop(to: !isAlwaysOnTop) },
+            isAlwaysOnTop: isAlwaysOnTop,
             videoZoom: isYouTubeActive ? nil : Binding(get: { videoZoom }, set: {
                 videoZoom = $0
                 mkvPlayback.surface.zoom = $0
                 evaluatePlayer("window.setNativeVideoZoom && window.setNativeVideoZoom(\($0));")
             })
         )
-        .padding(.horizontal, 8)
-        .padding(.bottom, 8)
+        .padding(.horizontal, PlayerChrome.inset)
+        .padding(.bottom, PlayerChrome.inset)
     }
 
     private var previousPlaylistAction: (() -> Void)? {
@@ -599,6 +611,27 @@ struct ContentView: View {
         loadMedia(media, startTime: 0, rememberAsLast: true)
     }
 
+    private func handleTrashedFile(_ file: URL) {
+        guard let media = StreamingProviderRegistry.shared.resolve(file.absoluteString) else { return }
+        if currentVideoID == media.mediaID {
+            currentVideoID = nil
+            currentSourceURL = nil
+            currentVideoTitle = ""
+            playlistIndex = nil
+            playerState = -1
+            playerCurrentTime = 0
+            playerDuration = 0
+            mkvPlayback.stop()
+            webView.loadHTMLString("", baseURL: nil)
+            UserDefaults.standard.removeObject(forKey: lastURLKey)
+            setStatusMessage("Original file moved to Trash")
+        }
+        playbackPositions.removeValue(forKey: media.mediaID)
+        UserDefaults.standard.set(playbackPositions, forKey: lastPlaybackPositionsKey)
+        settings.removeHistoryVideo(videoID: media.mediaID)
+        settings.removeRecentVideo(videoID: media.mediaID)
+    }
+
     private func advancePlaylist() {
         guard let index = playlistIndex else { return }
         if playlistURLs.indices.contains(index + 1) {
@@ -656,6 +689,12 @@ struct ContentView: View {
                 loadYouTube(id: media.mediaID, start: Double(adjustedResumeStartTime(from: startTime)), autoplay: true, playlistIndex: max(0, index - 1))
             } else {
                 // Non-YouTube providers (e.g. Disney+) load their page directly.
+                let controller = webView.configuration.userContentController
+                let scripts = controller.userScripts.filter { !$0.source.hasPrefix("window.nativeResumeTime = ") }
+                controller.removeAllUserScripts()
+                scripts.forEach { controller.addUserScript($0) }
+                let resumeTime = startTime.isFinite ? max(0, startTime) : 0
+                controller.addUserScript(WKUserScript(source: "window.nativeResumeTime = \(resumeTime);", injectionTime: .atDocumentStart, forMainFrameOnly: true))
                 isYouTubeActive = false
                 playerPageLoaded = false
                 playerReady = false
@@ -738,6 +777,27 @@ struct ContentView: View {
     }
 
     // Native control-bar actions, all routed through documented IFrame API methods.
+    private func handlePlaybackKey(_ keyCode: UInt16) -> Bool {
+        guard currentVideoID != nil, !showingPlaylist else { return false }
+        switch keyCode {
+        case 49:
+            playerTogglePlayPause()
+        case 123, 124:
+            let offset = keyCode == 123 ? -5.0 : 5.0
+            if currentVideoID?.hasPrefix("mkv:") == true {
+                playerCurrentTime = min(max(0, playerCurrentTime + offset), max(0, playerDuration))
+                playerSeek(to: playerCurrentTime)
+            } else if isYouTubeActive {
+                evaluatePlayer("window.ytSeekRelative(\(offset));")
+            } else {
+                evaluatePlayer("var v=document.querySelector('video'); if(v) { v.currentTime=Math.max(0, Math.min(Number.isFinite(v.duration) ? v.duration : Infinity, v.currentTime + \(offset))); window.nativePostPlaybackProgress && window.nativePostPlaybackProgress(); }")
+            }
+        default:
+            return false
+        }
+        return true
+    }
+
     private func playerTogglePlayPause() {
         if currentVideoID?.hasPrefix("mkv:") == true {
             mkvPlayback.togglePlayPause()
@@ -781,9 +841,8 @@ struct ContentView: View {
     }
 
     private func adjustedResumeStartTime(from startTime: Double) -> Int {
-        let roundedStart = Int(startTime.rounded())
-        guard roundedStart > 0 else { return 0 }
-        return max(0, roundedStart - 5)
+        guard startTime.isFinite, startTime > 0 else { return 0 }
+        return Int(startTime)
     }
 
     func historyEntry(for videoID: String) -> RecentVideoItem? {
@@ -1068,6 +1127,7 @@ struct ContentView: View {
 
     private func updatePlaybackPosition(videoID: String, time: Double, title: String?) {
         DispatchQueue.main.async {
+            guard currentVideoID != nil else { return }
             guard time.isFinite, time >= 0 else { return }
             if playlistIndex != nil, currentVideoID != videoID { return }
             currentVideoID = videoID
@@ -1310,6 +1370,11 @@ final class YouTubeScriptMessageHandler: NSObject, WKScriptMessageHandler, WKNav
             let time = body["currentTime"] as? Double ?? 0
             let duration = body["duration"] as? Double ?? 0
             onPlayerStateChange?(state, time, duration)
+            if state == 1 || state == 2 {
+                let playlistID = body["playlistId"] as? String ?? ""
+                let videoID = playlistID.isEmpty ? (body["videoId"] as? String ?? "") : "youtube-playlist:" + playlistID
+                onPlayerTick?(videoID, time, duration, body["title"] as? String ?? "", state)
+            }
         case "time", "mediaTime":
             let playlistID = body["playlistId"] as? String ?? ""
             let videoId = playlistID.isEmpty ? (body["videoId"] as? String ?? "") : "youtube-playlist:" + playlistID
