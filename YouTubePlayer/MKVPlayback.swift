@@ -115,7 +115,7 @@ final class MKVPlayback: NSObject, ObservableObject, VLCMediaPlayerDelegate {
 
     private func poll(state reportedState: VLCMediaPlayerState? = nil) {
         guard let mediaID, !finished else { return }
-        let state: Int
+        var state: Int
         switch reportedState ?? player.state {
         case .playing: state = 1
         case .paused: state = 2
@@ -129,6 +129,7 @@ final class MKVPlayback: NSObject, ObservableObject, VLCMediaPlayerDelegate {
         }
         let time = max(0, Double(player.time.intValue) / 1000)
         let duration = max(0, Double(player.media?.length.intValue ?? 0) / 1000)
+        if state == 0 && time == 0 && duration == 0 { state = -1 }
         if state == 0 || state == -1 {
             finished = true
             timer?.invalidate()

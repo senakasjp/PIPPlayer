@@ -1,6 +1,9 @@
 import SwiftUI
 import WebKit
 struct ContentView: View {
+    @State private var showsSourceError = false
+    @State private var sourceErrorMessage = ""
+    @State private var failedSourceURL: String?
     @EnvironmentObject var settings: AppSettings
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @StateObject private var mkvPlayback = MKVPlayback()
@@ -109,6 +112,15 @@ struct ContentView: View {
                 const postProgress = () => {
                     const video = document.querySelector('video');
                     if (!video) { return; }
+                    if (video.error) {
+                        const code = video.error.code;
+                        if (code !== 1 && video.nativeReportedError !== code) {
+                            video.nativeReportedError = code;
+                            window.webkit.messageHandlers.playerBridge.postMessage({event: 'mediaError', code: code, sourceURL: window.nativeSourceURL || window.location.href});
+                        }
+                        return;
+                    }
+                    video.nativeReportedError = null;
                     if (video.readyState < 1) { return; }
                     if (window.nativeResumeTime > 0) {
                         video.currentTime = Math.min(window.nativeResumeTime, Number.isFinite(video.duration) ? video.duration : window.nativeResumeTime);
@@ -122,6 +134,7 @@ struct ContentView: View {
                         video.controls = false;
                         video.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;max-width:none;max-height:none;margin:0;object-fit:contain';
                         video.addEventListener('ended', () => {
+                            if (video.error) { return; }
                             window.webkit.messageHandlers.playerBridge.postMessage({event: 'mediaEnded', sourceURL: window.location.href});
                         });
                     }
@@ -154,7 +167,7 @@ struct ContentView: View {
                     setInterval(postProgress, 1000);
                     const video = document.querySelector('video');
                     if (video) {
-                        ['loadedmetadata', 'pause', 'seeking', 'seeked', 'ended'].forEach((eventName) => {
+                        ['error', 'loadedmetadata', 'pause', 'seeking', 'seeked', 'ended'].forEach((eventName) => {
                             video.addEventListener(eventName, postProgress);
                         });
                     }
@@ -335,6 +348,12 @@ struct ContentView: View {
                 playPlaylistItem(index)
             }
         }
+        .alert("Unable to read video", isPresented: $showsSourceError) {
+            Button("Retry") { DispatchQueue.main.async { retryFailedSource() } }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(sourceErrorMessage)
+        }
         .onChange(of: playlistURLs) { _ in
             if playlistIndex != nil {
                 playlistIndex = playlistURLs.firstIndex {
@@ -406,14 +425,19 @@ struct ContentView: View {
             playerDuration = snapshot.duration
             if !isScrubbing { playerCurrentTime = snapshot.time }
             if snapshot.state == 1 || snapshot.state == 2 {
-                updatePlaybackPosition(videoID: snapshot.mediaID, time: snapshot.time, title: currentVideoTitle)
+                if snapshot.duration > 0 {
+                    updatePlaybackPosition(videoID: snapshot.mediaID, time: snapshot.time, title: currentVideoTitle)
+                }
             } else if snapshot.state == 0 {
                 DispatchQueue.main.async {
+                    guard failedSourceURL == nil else { return }
                     guard snapshot.mediaID == currentVideoID, snapshot.sessionID == mkvPlayback.sessionID else { return }
                     advancePlaylist()
                 }
             } else if snapshot.state == -1 {
-                statusMessage = "Unable to play this MKV file. Check the file or URL and try again."
+                if let source = currentSourceURL {
+                    reportSourceFailure(source, message: "The source could not be read or decoded. Check that the file or network location is available and the video is not damaged.")
+                }
             }
         }
         .onAppear(perform: configurePlayback)
@@ -429,12 +453,14 @@ struct ContentView: View {
         // Progress callback for non-YouTube (Disney+) pages.
         scriptHandler.onProgress = { videoId, time, title in
             guard currentVideoID?.hasPrefix("mkv:") != true else { return }
+            guard failedSourceURL == nil || failedSourceURL != currentSourceURL else { return }
             updatePlaybackPosition(videoID: videoId, time: time, title: title)
         }
         // IFrame Player API bridge callbacks.
         scriptHandler.onPlayerReady = { handlePlayerReady() }
         scriptHandler.onPlayerStateChange = { state, time, duration in
             DispatchQueue.main.async {
+                guard failedSourceURL == nil else { return }
                 playerState = state
                 if duration > 0 { playerDuration = duration }
                 if !isScrubbing { playerCurrentTime = time }
@@ -445,6 +471,7 @@ struct ContentView: View {
         }
         scriptHandler.onMediaEnded = { sourceURL in
             DispatchQueue.main.async {
+                guard failedSourceURL == nil else { return }
                 if sourceURL == nil || sourceURL == currentSourceURL { advancePlaylist() }
             }
         }
@@ -462,8 +489,22 @@ struct ContentView: View {
         scriptHandler.onPlayerError = { message in
             DispatchQueue.main.async { setStatusMessage(message, clearAfter: 6) }
         }
+        scriptHandler.onNavigationError = { message in
+            let source = currentSourceURL
+            DispatchQueue.main.async {
+                guard let source, source == currentSourceURL else { return }
+                reportSourceFailure(source, message: message)
+            }
+        }
+        scriptHandler.onSourceError = { source, message in
+            DispatchQueue.main.async {
+                guard source == currentSourceURL else { return }
+                reportSourceFailure(source, message: message)
+            }
+        }
         scriptHandler.onPlayerTick = { videoId, time, duration, title, state in
             DispatchQueue.main.async {
+                guard failedSourceURL == nil || failedSourceURL != currentSourceURL else { return }
                 guard isYouTubeActive || currentVideoID == videoId else { return }
                 playerState = state
                 if duration > 0 { playerDuration = duration }
@@ -615,7 +656,6 @@ struct ContentView: View {
               let media = StreamingProviderRegistry.shared.resolve(playlistURLs[index]) else { return }
         playlistIndex = index
         showingPlaylist = false
-        currentVideoID = nil
         loadMedia(media, startTime: 0, rememberAsLast: true)
     }
 
@@ -651,8 +691,9 @@ struct ContentView: View {
 
     func loadMedia(_ media: StreamingMedia, startTime: Double, rememberAsLast: Bool) {
         if media.playbackURL.isFileURL,
-           !FileManager.default.isReadableFile(atPath: media.playbackURL.path) {
-            setStatusMessage("This video file is unavailable or cannot be read.")
+           (!FileManager.default.isReadableFile(atPath: media.playbackURL.path)
+            || (try? media.playbackURL.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) != true) {
+            reportSourceFailure(media.playbackURL.absoluteString, message: "The file is missing, its drive is disconnected, or it cannot be read. Reconnect the drive or check the file's permissions, then retry.")
             return
         }
         if rememberAsLast {
@@ -668,7 +709,10 @@ struct ContentView: View {
                 sourceURL = media.playbackURL.absoluteString
             }
 
-            if currentVideoID == media.mediaID, currentSourceURL == sourceURL, playerState > 0 {
+            let isRetry = failedSourceURL == sourceURL
+            failedSourceURL = nil
+            showsSourceError = false
+            if !isRetry, currentVideoID == media.mediaID, currentSourceURL == sourceURL, playerState > 0 {
                 currentVideoID = media.mediaID
                 currentSourceURL = sourceURL
                 applyHistoryNotice(historyEntry(for: media.mediaID))
@@ -702,7 +746,8 @@ struct ContentView: View {
                 controller.removeAllUserScripts()
                 scripts.forEach { controller.addUserScript($0) }
                 let resumeTime = startTime.isFinite ? max(0, startTime) : 0
-                controller.addUserScript(WKUserScript(source: "window.nativeResumeTime = \(resumeTime);", injectionTime: .atDocumentStart, forMainFrameOnly: true))
+                let encodedSource = (try? JSONEncoder().encode(sourceURL)).flatMap { String(data: $0, encoding: .utf8) } ?? "null"
+                controller.addUserScript(WKUserScript(source: "window.nativeResumeTime = \(resumeTime); window.nativeSourceURL = \(encodedSource);", injectionTime: .atDocumentStart, forMainFrameOnly: true))
                 isYouTubeActive = false
                 playerPageLoaded = false
                 playerReady = false
@@ -725,6 +770,33 @@ struct ContentView: View {
     }
 
     // MARK: - IFrame Player API
+
+    private func reportSourceFailure(_ source: String, message: String) {
+        guard failedSourceURL != source else { return }
+        failedSourceURL = source
+        let url = URL(string: source)
+        let name = url?.isFileURL == true ? url?.lastPathComponent : currentVideoTitle
+        sourceErrorMessage = "\(name ?? "Video")\n\n\(message)"
+        pauseAndPersistCurrentPlayback()
+        mkvPlayback.stop()
+        playerState = -1
+        statusMessage = message
+        statusMessageToken = nil
+        showsSourceError = true
+        if let window = getWindow() {
+            contentOpacity = 1
+            window.ignoresMouseEvents = false
+            applyTransparentWindowAppearance(window, isFullyTransparent: false)
+        }
+    }
+
+    private func retryFailedSource() {
+        guard let source = failedSourceURL,
+              let media = StreamingProviderRegistry.shared.resolve(source) else { return }
+        failedSourceURL = nil
+        if source == currentSourceURL { playerState = -1 }
+        loadMedia(media, startTime: playbackPositions[media.mediaID] ?? 0, rememberAsLast: true)
+    }
 
     /// Loads player.html with baseURL https://www.youtube.com so YouTube's
     /// embed server accepts the origin and the IFrame API postMessage channel works.
@@ -807,6 +879,10 @@ struct ContentView: View {
     }
 
     private func playerTogglePlayPause() {
+        if failedSourceURL != nil, failedSourceURL == currentSourceURL {
+            retryFailedSource()
+            return
+        }
         if currentVideoID?.hasPrefix("mkv:") == true {
             mkvPlayback.togglePlayPause()
             return
@@ -962,7 +1038,7 @@ struct ContentView: View {
         guard isTransparent else { return }
         DispatchQueue.main.async {
             guard let window = getWindow() else { return }
-            let hidesVideo = hovering && NSEvent.pressedMouseButtons == 0 && !isDropTargeted
+            let hidesVideo = hovering && NSEvent.pressedMouseButtons == 0 && !isDropTargeted && !showsSourceError && window.attachedSheet == nil
             guard window.ignoresMouseEvents != hidesVideo || contentOpacity != (hidesVideo ? 0 : 1) else { return }
             if hidesVideo {
                 // Mouse over: hide content completely and pass clicks through
@@ -1350,6 +1426,9 @@ final class YouTubeScriptMessageHandler: NSObject, WKScriptMessageHandler, WKNav
     var onPlayerStateChange: ((_ state: Int, _ time: Double, _ duration: Double) -> Void)?
     var onPlayerTick: ((_ videoId: String, _ time: Double, _ duration: Double, _ title: String, _ state: Int) -> Void)?
     var onPlayerError: ((_ message: String) -> Void)?
+    var onSourceError: ((String, String) -> Void)?
+    var onNavigationError: ((String) -> Void)?
+    private var activeNavigation: WKNavigation?
     var onMediaEnded: ((String?) -> Void)?
     var onPlaylistPosition: ((String, Int) -> Void)?
 
@@ -1398,6 +1477,18 @@ final class YouTubeScriptMessageHandler: NSObject, WKScriptMessageHandler, WKNav
             onMediaEnded?(nil)
         case "mediaEnded":
             if let sourceURL = body["sourceURL"] as? String { onMediaEnded?(sourceURL) }
+        case "mediaError":
+            guard let source = body["sourceURL"] as? String else { return }
+            let code = body["code"] as? Int ?? 0
+            guard code != 1 else { return }
+            let message: String
+            switch code {
+            case 2: message = "The video source could not be read. Check the connection or reconnect the drive, then retry."
+            case 3: message = "The video could not be decoded. It may be damaged or use an unsupported codec."
+            case 4: message = "The video source or format is not supported, or the source is unavailable."
+            default: message = "The video source could not be read. Check the file or URL, then retry."
+            }
+            onSourceError?(source, message)
         case "error":
             let code = body["code"] as? Int ?? -1
             let message: String
@@ -1418,6 +1509,32 @@ final class YouTubeScriptMessageHandler: NSObject, WKScriptMessageHandler, WKNav
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         onPageReady?()
+    }
+
+    func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        activeNavigation = navigation
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        reportNavigationFailure(navigation, error: error)
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        reportNavigationFailure(navigation, error: error)
+    }
+
+    private func reportNavigationFailure(_ navigation: WKNavigation?, error: Error) {
+        let failure = error as NSError
+        guard let navigation, navigation === activeNavigation,
+              Self.shouldReportNavigationError(failure) else { return }
+        onNavigationError?("The video page could not be loaded. \(failure.localizedDescription)")
+    }
+
+    static func shouldReportNavigationError(_ error: NSError) -> Bool {
+        if error.domain == NSURLErrorDomain && error.code == NSURLErrorCancelled { return false }
+        // WebKit's policy interruption and media plug-in handoff are successful replacements, not read failures.
+        if error.domain == "WebKitErrorDomain" && [102, 204].contains(error.code) { return false }
+        return true
     }
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {

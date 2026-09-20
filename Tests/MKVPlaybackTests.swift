@@ -58,5 +58,19 @@ struct MKVPlaybackTests {
         waitUntil { playback.snapshot?.state == -1 }
         playback.stop()
         print("Direct MKV decoding, resume, pause, seek, zoom, completion, stop and failure checks passed")
+        let corruptURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mkv")
+        try Data("not a video source".utf8).write(to: corruptURL)
+        defer { try? FileManager.default.removeItem(at: corruptURL) }
+        let corrupt = StreamingProviderRegistry.shared.resolve(corruptURL.absoluteString)!
+        var corruptCompletions = 0
+        let corruptObserver = playback.updates.sink { if $0.state == 0 { corruptCompletions += 1 } }
+        playback.play(corrupt, startTime: 0, volume: 0)
+        waitUntil { playback.snapshot?.state == -1 }
+        precondition(corruptCompletions == 0, "An unreadable source must not complete or advance the playlist")
+        corruptObserver.cancel()
+        playback.play(media, startTime: 1, volume: 0)
+        waitUntil { playback.snapshot?.state == 1 && (playback.snapshot?.time ?? 0) >= 1 }
+        playback.stop()
+        print("Corrupt MKV source detection and recovery checks passed")
     }
 }
