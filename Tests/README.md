@@ -14,6 +14,12 @@ The Swift checks cover MP4/WebM resolution, file/text pasteboards, unsupported d
 
 ## Release build
 
+Run all bridge, hover, and source-error checks with `node --test Tests/*Tests.cjs`.
+The native Swift checks require macOS on Apple Silicon with Xcode installed at
+`/Applications/Xcode.app`. Source error checks cover failures before metadata,
+redirected-source identity, preserved resume positions, canceled or superseded
+navigation, and WebKit media handoffs.
+
 ```sh
 xcodebuild -project YouTubePlayer.xcodeproj -scheme YouTubePlayer -configuration Release -derivedDataPath /tmp/YouTubePlayerBuild build
 ```
@@ -51,3 +57,11 @@ It checks decoding, original source identity, resume, pause, seek, zoom geometry
 For a local ad-hoc signed Release build, add `ENABLE_HARDENED_RUNTIME=NO` to the build command. A distributed hardened build must sign the app and embedded framework with the same developer identity; ad-hoc signatures do not satisfy library validation.
 
 Native manual checks: add an MKV through Add Files, play it, pause and seek, change volume, zoom and reset, advance to another item, reopen from history, and switch between MKV and WebKit playback. Confirm no conversion step or external application is involved.
+
+For source-read recovery, use disposable corrupt MP4 and MKV files. Confirm the
+error alert names the source and offers Retry/Cancel, including with Hover
+Transparency enabled. Replace the corrupt fixture with valid media and retry;
+confirm playback recovers. Test an unavailable file or disconnected drive and
+confirm the playlist does not advance. Cancel must dismiss the alert without
+clearing the saved position. The MKV suite also checks corrupt-file failure,
+absence of a completion event, and recovery with a valid fixture.

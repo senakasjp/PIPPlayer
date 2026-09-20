@@ -156,6 +156,23 @@ the active-item highlight follows the playing video to its new position.
 - Save YouTube pause updates promptly and resume without the former five-second
   rewind.
 
+## Source read failures
+
+Show a native “Unable to read video” alert for unavailable files, network read
+failures, unsupported or damaged video, and player-page load failures. Name the
+source, explain the failure, and offer Retry or Cancel. Retry reloads the source
+using its saved playback position. Ignore intentional load cancellations and
+failures from replaced sources. A failure must not advance the playlist or save
+an initial zero position over the last stopped position. Keep hover click-through
+disabled while the error alert is open so its controls remain usable.
+
+Retain the originally requested URL when a media request redirects. Normal
+WebKit media handoffs and deliberate navigation cancellations are not errors.
+Treat an MKV decoder completion with no elapsed time or duration as a failed
+source, not a completed playlist entry. Do not save zero-duration startup
+updates over an existing MKV playback position. After Cancel, Play retries the
+failed active source; users can also choose another video normally.
+
 ## Components, accessibility, and motion
 
 `PlayerToolbar` composes the timeline, transport, volume, and utility controls.
@@ -210,3 +227,10 @@ Evidence and review reports:
 - `.omo/evidence/native-player-ui-clone-fidelity.md`
 - `.omo/evidence/hover-top-bar/verification.md`
 - `.omo/evidence/hover-top-bar-code-review.md`
+
+Source-read handling was checked on 2026-09-21 with real corrupt MP4 and MKV
+fixtures, Retry after restoring a valid MP4, and Cancel. Five Node test files
+passed, including pre-metadata error reporting, source identity after redirects,
+saved-position preservation, and native WebKit navigation filtering. The real
+MKV decoder suite passed corrupt-source detection, rejection of false completion,
+and recovery with a valid file. The Release build passed.
