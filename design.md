@@ -2,8 +2,9 @@
 
 This document describes the current native macOS player and its agreed behavior.
 The user's player screenshot supplies the visual direction; subsequent requests
-for smaller controls, video behind the top bar, playlist file deletion, and
-shuffle take precedence over the original screenshot's dimensions.
+for smaller controls, video behind the top bar, playlist file deletion, shuffle,
+and top-bar dragging during hover transparency take precedence over the original
+screenshot's dimensions.
 
 ## Visual direction
 
@@ -79,8 +80,26 @@ Use a 24pt semibold system-font title, centered within a 36pt row with a 40pt to
 inset and 24pt horizontal padding. Keep it on one line with middle truncation and
 retain the full title in the view's text/help. Apply a subtle dark text shadow.
 
-Existing hover-transparency behavior remains for the rest of the player. The
-control overlay follows the existing hover, paused, and scrubbing visibility rules.
+| Top-bar element | Token / value |
+| --- | --- |
+| Opaque backing and drag-strip height | `PlayerChrome.topBarHeight` / 28pt |
+| Leading space reserved for window buttons | `PlayerChrome.windowButtonsWidth` / 80pt |
+
+Outside hover-transparency mode, the title and playback controls appear while
+hovered, paused, or scrubbing. They are hidden while hover transparency is enabled;
+the native window buttons and top drag strip remain available.
+
+The top 28pt strip remains interactive in hover-transparency mode: entering it
+restores the video and mouse input for the native window buttons and window
+dragging. Hovering over the video below this strip hides the video and passes
+clicks through, while the top backing stays opaque. Leaving the window restores
+the video and mouse input. Do not enter click-through mode during a mouse drag
+or when the player is a file-drop target.
+
+Use a native window-drag surface across the strip, reserving the leading 80pt
+for the macOS window buttons. A first click can start dragging even when the
+window is inactive. Re-evaluate hover boundaries against the current window frame
+as it moves or resizes, including on monitors with negative screen coordinates.
 
 ## Playlist
 
@@ -145,6 +164,12 @@ mouse interaction and accessible slider values. `PlaylistView` owns the playlist
 sheet and confirmations; playback and successful file-removal callbacks connect
 to `ContentView`.
 
+`PlayerWindowDragArea` provides the top strip's native AppKit drag surface and
+forwards mouse-down events to `NSWindow.performDrag(with:)`.
+`PlayerWindowCoordinator.isPointerOverPlayback` excludes the top strip from the
+hover click-through region. The existing 0.15-second hover monitor restores input
+when the pointer returns from the transparent video area to the top strip.
+
 Use named buttons, tooltips, readable contrast, monospaced timestamps, and native
 focus behavior. Hide decorative speaker imagery from accessibility. Support
 Unicode titles and truncate rather than wrapping over the video. Respect Reduce
@@ -165,9 +190,23 @@ Release builds, code-signature verification, and playback/playlist bridge
 regression checks passed. The app was copied to `/Applications/YouTubePlayer.app`
 and launched, with the previous installation backed up.
 
+The latest top-bar update was rebuilt, copied to Applications, and launched on
+2026-09-20. Release compilation and strict code-signature verification passed.
+All three Node test files passed, including the Swift/AppKit hover test covering
+wide and compact frames, negative screen coordinates, top-strip boundaries,
+inactive-window first clicks, and forwarding to the native drag API. The code
+review found no blockers.
+
+Live end-to-end dragging with hover transparency still needs a measured
+before/after window-position check. Automated UI input was stopped while the
+user was interacting with the player; the regression tests do not replace that
+remaining manual check.
+
 Evidence and review reports:
 
 - `.omo/evidence/player-ui/verification.md`
 - `.omo/evidence/player-ui/`
 - `.omo/evidence/native-player-ui-gate-review.md`
 - `.omo/evidence/native-player-ui-clone-fidelity.md`
+- `.omo/evidence/hover-top-bar/verification.md`
+- `.omo/evidence/hover-top-bar-code-review.md`
