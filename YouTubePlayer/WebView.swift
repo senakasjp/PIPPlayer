@@ -2,6 +2,19 @@ import SwiftUI
 import WebKit
 import AppKit
 
+struct PlayerWindowDragArea: NSViewRepresentable {
+    func makeNSView(context: Context) -> DragView { DragView() }
+    func updateNSView(_ nsView: DragView, context: Context) {}
+
+    final class DragView: NSView {
+        override var acceptsFirstResponder: Bool { false }
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+        override func mouseDown(with event: NSEvent) {
+            window?.performDrag(with: event)
+        }
+    }
+}
+
 struct WebView: NSViewRepresentable {
     let webView: WKWebView
     var nativeVideoView: NSView? = nil

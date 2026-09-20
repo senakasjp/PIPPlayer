@@ -5,6 +5,8 @@ enum PlayerChrome {
     static let accent = Color(red: 1, green: 105 / 255, blue: 74 / 255)
     static let panel = Color(red: 39 / 255, green: 56 / 255, blue: 73 / 255)
     static let height: CGFloat = 72
+    static let topBarHeight: CGFloat = 28
+    static let windowButtonsWidth: CGFloat = 80
     static let radius: CGFloat = 10
     static let inset: CGFloat = 8
     static let padding: CGFloat = 14

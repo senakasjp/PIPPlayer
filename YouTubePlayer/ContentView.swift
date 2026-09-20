@@ -218,7 +218,7 @@ struct ContentView: View {
     var body: some View {
         ZStack {
             VStack(spacing: 0) {
-                Color.black.frame(height: 28)
+                Color.black.frame(height: PlayerChrome.topBarHeight)
                 Spacer(minLength: 0)
             }
             .allowsHitTesting(false)
@@ -311,10 +311,18 @@ struct ContentView: View {
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: barsVisible)
             .allowsHitTesting(barsVisible && !isTransparent)
         }
+        .overlay(alignment: .top) {
+            PlayerWindowDragArea()
+                .frame(height: PlayerChrome.topBarHeight)
+                .padding(.leading, PlayerChrome.windowButtonsWidth)
+        }
         .ignoresSafeArea()
         .onHover { hovering in
-            isHovering = hovering
-            handleHoverChange(hovering)
+            if isTransparent, let window = getWindow() {
+                updateHoverStateFromMouseLocation(window: window)
+            } else {
+                isHovering = hovering
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .openURL)) { _ in
             promptForURL()
@@ -954,7 +962,9 @@ struct ContentView: View {
         guard isTransparent else { return }
         DispatchQueue.main.async {
             guard let window = getWindow() else { return }
-            if hovering && NSEvent.pressedMouseButtons == 0 && !isDropTargeted {
+            let hidesVideo = hovering && NSEvent.pressedMouseButtons == 0 && !isDropTargeted
+            guard window.ignoresMouseEvents != hidesVideo || contentOpacity != (hidesVideo ? 0 : 1) else { return }
+            if hidesVideo {
                 // Mouse over: hide content completely and pass clicks through
                 contentOpacity = 0.0
                 window.ignoresMouseEvents = true
@@ -992,13 +1002,14 @@ struct ContentView: View {
         guard isTransparent || currentVideoID?.hasPrefix("mkv:") == true else { return }
         let mouseLocation = NSEvent.mouseLocation
         let contentRectInScreen = window.convertToScreen(window.contentLayoutRect)
-        let hoveringNow = contentRectInScreen.contains(mouseLocation) && NSEvent.pressedMouseButtons == 0 && !isDropTargeted
-        if hoveringNow != isHovering {
-            isHovering = hoveringNow
-            handleHoverChange(hoveringNow)
-        } else if !hoveringNow, window.ignoresMouseEvents {
-            contentOpacity = 1.0
-            window.ignoresMouseEvents = false
+        let hoveringNow = contentRectInScreen.contains(mouseLocation)
+        isHovering = hoveringNow
+        if isTransparent {
+            let playbackHover = PlayerWindowCoordinator.isPointerOverPlayback(
+                mouseLocation, contentRect: contentRectInScreen,
+                windowFrame: window.frame, topBarHeight: PlayerChrome.topBarHeight
+            )
+            handleHoverChange(playbackHover)
         }
     }
 
@@ -1080,9 +1091,6 @@ struct ContentView: View {
             if enabled {
                 startHoverMonitor(for: window)
                 updateHoverStateFromMouseLocation(window: window)
-                contentOpacity = isHovering ? 0.0 : 1.0
-                window.ignoresMouseEvents = isHovering
-                applyTransparentWindowAppearance(window, isFullyTransparent: isHovering)
                 setStatusMessage("Hover mode enabled")
             } else {
                 stopHoverMonitor()
@@ -1446,6 +1454,10 @@ final class YouTubeScriptMessageHandler: NSObject, WKScriptMessageHandler, WKNav
 }
 
 final class PlayerWindowCoordinator: NSObject, NSWindowDelegate {
+    static func isPointerOverPlayback(_ point: NSPoint, contentRect: NSRect, windowFrame: NSRect, topBarHeight: CGFloat) -> Bool {
+        contentRect.contains(point) && point.y < windowFrame.maxY - topBarHeight
+    }
+
     var lockAspectRatio16x9 = false
     var onFrameChanged: ((NSRect) -> Void)?
     private var isAdjustingFrame = false
