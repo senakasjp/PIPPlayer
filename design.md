@@ -156,7 +156,7 @@ the active-item highlight follows the playing video to its new position.
 - `loadMedia` is the single resume point: every entry path, including queue
   items, starts from the saved position. Local files fall back to a file-name
   match when the exact URL has no entry (same-named files share a position).
-- Media that plays to the end resets its saved position to zero.
+- Media that plays to the end keeps the end as its saved position (no reset).
 - Save YouTube pause updates promptly and resume without the former five-second
   rewind.
 

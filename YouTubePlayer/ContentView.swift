@@ -681,11 +681,6 @@ struct ContentView: View {
     }
 
     private func advancePlaylist() {
-        // Called only when media ends: a finished video starts over next time.
-        if let finishedID = currentVideoID {
-            playbackPositions[finishedID] = 0
-            UserDefaults.standard.set(playbackPositions, forKey: lastPlaybackPositionsKey)
-        }
         guard let index = playlistIndex else { return }
         if playlistURLs.indices.contains(index + 1) {
             playPlaylistItem(index + 1)
