@@ -681,6 +681,11 @@ struct ContentView: View {
     }
 
     private func advancePlaylist() {
+        // Called only when media ends: a finished video starts over next time.
+        if let finishedID = currentVideoID {
+            playbackPositions[finishedID] = 0
+            UserDefaults.standard.set(playbackPositions, forKey: lastPlaybackPositionsKey)
+        }
         guard let index = playlistIndex else { return }
         if playlistURLs.indices.contains(index + 1) {
             playPlaylistItem(index + 1)
@@ -690,6 +695,8 @@ struct ContentView: View {
     }
 
     func loadMedia(_ media: StreamingMedia, startTime: Double, rememberAsLast: Bool) {
+        // Every load path (URL, history, queue, launch) resumes from the saved place.
+        let startTime = savedPosition(for: media.mediaID) ?? startTime
         if media.playbackURL.isFileURL,
            (!FileManager.default.isReadableFile(atPath: media.playbackURL.path)
             || (try? media.playbackURL.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) != true) {
@@ -1212,7 +1219,8 @@ struct ContentView: View {
     private func updatePlaybackPosition(videoID: String, time: Double, title: String?) {
         DispatchQueue.main.async {
             guard currentVideoID != nil else { return }
-            guard time.isFinite, time >= 0 else { return }
+            // Ignore sub-second reports so a startup tick at 0 can't erase the saved place.
+            guard time.isFinite, time >= 1 else { return }
             if playlistIndex != nil, currentVideoID != videoID { return }
             currentVideoID = videoID
             if let pageURL = webView.url?.absoluteString,
@@ -1225,6 +1233,19 @@ struct ContentView: View {
             UserDefaults.standard.set(lastWatchURL, forKey: lastURLKey)
             AppSettings.shared.recordRecentVideo(videoID: videoID, title: title, position: time, sourceURL: lastWatchURL)
         }
+    }
+
+    private func savedPosition(for mediaID: String) -> Double? {
+        if let time = playbackPositions[mediaID] { return time }
+        // Local file moved or its drive remounted elsewhere: match by file name.
+        // ponytail: two different files with the same name share a place; key by name+size if that bites.
+        func fileName(_ id: String) -> String? {
+            guard let colon = id.firstIndex(of: ":"),
+                  let url = URL(string: String(id[id.index(after: colon)...])), url.isFileURL else { return nil }
+            return url.lastPathComponent
+        }
+        guard let name = fileName(mediaID) else { return nil }
+        return playbackPositions.first(where: { fileName($0.key) == name })?.value
     }
 
     private func activeVideoID() -> String? {

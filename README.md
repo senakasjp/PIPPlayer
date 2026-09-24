@@ -35,7 +35,7 @@ IFrame methods: `loadVideoById`/`cueVideoById`, `playVideo`, `pauseVideo`, `seek
 ### Playback
 - **Open YouTube URLs**: Paste, drop, or enter a YouTube link to start playback or replace the current video
 - **Last Video Restore**: Remembers the last opened video and restores it on launch
-- **Resume Playback Position**: Stores timeline progress per video and resumes from the saved time
+- **Resume Playback Position**: Stores timeline progress per video permanently and resumes from the saved time however the video is opened (URL, history, queue or launch). Moved local files are matched by file name; videos played to the end start over.
 - **Responsive Toolbar**: A dark floating SwiftUI toolbar with a prominent circular play/pause button, seeking, volume, and playlist access. Compact windows move secondary controls into Playback options.
 - **Minimal Viewing UI**: Hides only scrollbars; the YouTube player itself is shown unmodified
 

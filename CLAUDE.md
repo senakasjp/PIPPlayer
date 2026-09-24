@@ -39,3 +39,5 @@ Run the regression checks documented in `Tests/README.md`. For UI changes, exerc
 The reported drag crash was not reproduced during the September 16, 2026 checks. Drop handling was hardened, MP4 playback and queue advancement were exercised, and the Release build plus regression checks passed. Modern UI captures passed visual review; full VoiceOver operation and measured contrast were not audited.
 
 WebM and zoom verification: generated VP9 WebM played to completion using the actual injected bridge; 150% zoom produced the expected geometry and black video/body backgrounds. Native zoom increment and Reset were exercised. Codec availability depends on the installed macOS WebKit.
+
+Resume hardening (September 24, 2026): all load paths resume from the saved position, sub-second reports are ignored, moved files match by name, and finished media resets to zero. The Release build and regression checks passed; resume was not exercised by hand in the running app. An installed ad-hoc Release copy needs `codesign --force --deep --sign -` (no hardened runtime) or VLCKit fails library validation at launch.

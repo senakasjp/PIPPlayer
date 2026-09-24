@@ -152,7 +152,11 @@ the active-item highlight follows the playing video to its new position.
 - Save playback positions per video in local persistent preferences and restore
   them when reopening media, including after restarting the app.
 - Restore local-video positions after metadata is ready; initial loading must not
-  overwrite the saved position with zero.
+  overwrite the saved position with zero (reports under one second are ignored).
+- `loadMedia` is the single resume point: every entry path, including queue
+  items, starts from the saved position. Local files fall back to a file-name
+  match when the exact URL has no entry (same-named files share a position).
+- Media that plays to the end resets its saved position to zero.
 - Save YouTube pause updates promptly and resume without the former five-second
   rewind.
 
