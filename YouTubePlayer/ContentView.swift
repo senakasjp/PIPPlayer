@@ -1039,21 +1039,21 @@ struct ContentView: View {
     func handleHoverChange(_ hovering: Bool) {
         guard isTransparent else { return }
         DispatchQueue.main.async {
+            // Keep the current input target for the entire click or drag gesture.
+            guard NSEvent.pressedMouseButtons == 0 else { return }
             guard let window = getWindow() else { return }
-            let hidesVideo = hovering && NSEvent.pressedMouseButtons == 0 && !isDropTargeted && !showsSourceError && window.attachedSheet == nil
+            let hidesVideo = hovering && !isDropTargeted && !showsSourceError && window.attachedSheet == nil
             guard window.ignoresMouseEvents != hidesVideo || contentOpacity != (hidesVideo ? 0 : 1) else { return }
             if hidesVideo {
                 // Mouse over: hide content completely and pass clicks through
                 contentOpacity = 0.0
                 window.ignoresMouseEvents = true
                 applyTransparentWindowAppearance(window, isFullyTransparent: true)
-                ensureWindowFront(window) // keep app active so menus remain usable
             } else {
                 // Mouse away: make content opaque and clickable
                 contentOpacity = 1.0
                 window.ignoresMouseEvents = false
                 applyTransparentWindowAppearance(window, isFullyTransparent: false)
-                ensureWindowFront(window)
             }
             applyTransparentSurfaceMode()
         }
