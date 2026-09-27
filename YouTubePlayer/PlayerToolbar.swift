@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 // Shared tokens for the native player chrome; see DESIGN.md.
 enum PlayerChrome {
@@ -7,12 +8,61 @@ enum PlayerChrome {
     static let height: CGFloat = 72
     static let topBarHeight: CGFloat = 28
     static let windowButtonsWidth: CGFloat = 80
-    static let radius: CGFloat = 10
+    static let radius: CGFloat = 4
+    static let windowRadius: CGFloat = 6   // player window and playlist sheet corners
+    static let smallRadius: CGFloat = 3   // fields, badges, thumbnails, buttons
     static let inset: CGFloat = 8
     static let padding: CGFloat = 14
     static let titleSize: CGFloat = 24
     static let iconSize: CGFloat = 16
     static let timeSize: CGFloat = 11
+
+    /// Borderless 28pt icon control shared by the toolbar and playlist.
+    static func iconButton(_ symbol: String, _ label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: iconSize, weight: .semibold))
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .accessibilityLabel(label)
+        .help(label)
+    }
+}
+
+extension NSWindow {
+    /// macOS 26 rounds titled windows and sheets heavily and offers no public setting.
+    /// ponytail: private AppKit setter, skipped when the method is missing; drop it if Apple adds an API.
+    func setCornerRadius(_ radius: CGFloat) {
+        let selector = NSSelectorFromString("_setCornerRadius:")
+        guard let method = class_getInstanceMethod(NSWindow.self, selector) else { return }
+        typealias Setter = @convention(c) (AnyObject, Selector, CGFloat) -> Void
+        unsafeBitCast(method_getImplementation(method), to: Setter.self)(self, selector, radius)
+    }
+}
+
+/// Applies `PlayerChrome.windowRadius` to the window hosting this view (used for sheets).
+struct WindowCornerRadius: NSViewRepresentable {
+    final class Probe: NSView {
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            window?.setCornerRadius(PlayerChrome.windowRadius)
+        }
+    }
+    func makeNSView(context: Context) -> Probe { Probe() }
+    func updateNSView(_ view: Probe, context: Context) {}
+}
+
+extension View {
+    /// The player's floating slate panel: tinted material, hairline border and soft shadow.
+    func playerPanel(radius: CGFloat = PlayerChrome.radius) -> some View {
+        background(PlayerChrome.panel.opacity(0.94))
+            .background(.ultraThinMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: radius))
+            .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(.white.opacity(0.06)))
+            .shadow(color: .black.opacity(0.20), radius: 12, y: 4)
+    }
 }
 
 struct PlayerToolbar: View {
@@ -80,11 +130,7 @@ struct PlayerToolbar: View {
             .padding(.horizontal, PlayerChrome.padding)
             .padding(.vertical, 8)
             .frame(width: geometry.size.width, height: PlayerChrome.height)
-            .background(PlayerChrome.panel.opacity(0.94))
-            .background(.ultraThinMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: PlayerChrome.radius))
-            .overlay(RoundedRectangle(cornerRadius: PlayerChrome.radius).strokeBorder(.white.opacity(0.06)))
-            .shadow(color: .black.opacity(0.20), radius: 12, y: 4)
+            .playerPanel()
         }
         .frame(height: PlayerChrome.height)
         .foregroundStyle(.white)
@@ -150,15 +196,7 @@ struct PlayerToolbar: View {
     }
 
     private func control(_ symbol: String, _ label: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: PlayerChrome.iconSize, weight: .semibold))
-                .frame(width: 28, height: 28)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.borderless)
-        .accessibilityLabel(label)
-        .help(label)
+        PlayerChrome.iconButton(symbol, label, action: action)
     }
 
     private func timeLabel(_ time: Double) -> some View {
@@ -219,7 +257,7 @@ private final class PlayerSliderCell: NSSliderCell {
     override func drawBar(inside rect: NSRect, flipped: Bool) {
         let bounds = controlView?.bounds ?? rect
         let track = isVolume ? bounds : NSRect(x: 6, y: bounds.midY - 1.5, width: max(0, bounds.width - 12), height: 3)
-        let radius: CGFloat = isVolume ? 6 : 2
+        let radius: CGFloat = isVolume ? 3 : 1.5
         NSColor.white.withAlphaComponent(isEnabled ? 0.35 : 0.15).setFill()
         NSBezierPath(roundedRect: track, xRadius: radius, yRadius: radius).fill()
         let fraction = maxValue > minValue ? (doubleValue - minValue) / (maxValue - minValue) : 0

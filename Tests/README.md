@@ -7,6 +7,8 @@ work=$(mktemp -d)
 swiftc -module-cache-path "$work/modules" YouTubePlayer/StreamingProvider.swift YouTubePlayer/WebView.swift Tests/MediaRegressionTests.swift -o "$work/media-tests"
 "$work/media-tests"
 node Tests/PlaylistBridgeTests.cjs
+swiftc -parse-as-library -module-cache-path "$work/modules" YouTubePlayer/StreamingProvider.swift YouTubePlayer/PlaylistView.swift YouTubePlayer/PlayerToolbar.swift Tests/PlaylistLibraryTests.swift -o "$work/library-tests"
+"$work/library-tests"
 rm -rf "$work"
 ```
 

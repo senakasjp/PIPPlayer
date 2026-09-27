@@ -50,8 +50,10 @@ struct ContentView: View {
     @State private var playerVolume: Double = 100
     @State private var isScrubbing = false
     @State private var currentVideoTitle: String = ""
-    @State private var playlistURLs = UserDefaults.standard.stringArray(forKey: "playlistURLs") ?? []
-    @State private var playlistIndex: Int?
+    @State private var library = PlaylistLibrary.load()
+    @State private var playlistScope: UUID?      // folder being played; nil plays the whole library
+    @State private var playlistItemID: UUID?
+    @AppStorage("playlistRepeat") private var playlistRepeat = PlaylistRepeat.off
     @State private var showingPlaylist = false
     @State private var pendingPlaylistIndex = 0
     @State private var videoZoom = 1.0
@@ -265,7 +267,7 @@ struct ContentView: View {
                         .foregroundColor(.white)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 8)
-                        .background(.thinMaterial, in: Capsule())
+                        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: PlayerChrome.radius))
                         .shadow(color: .black.opacity(0.35), radius: 10, y: 2)
                         .padding(.bottom, 22)
                 }
@@ -274,10 +276,10 @@ struct ContentView: View {
 
             Color.clear.overlay {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    RoundedRectangle(cornerRadius: PlayerChrome.radius, style: .continuous)
                         .fill(.ultraThinMaterial)
 
-                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    RoundedRectangle(cornerRadius: PlayerChrome.radius, style: .continuous)
                         .strokeBorder(
                             LinearGradient(
                                 colors: [Color.red.opacity(0.9), Color.red.opacity(0.25)],
@@ -344,8 +346,12 @@ struct ContentView: View {
             showingPlaylist = true
         }
         .sheet(isPresented: $showingPlaylist) {
-            PlaylistView(urls: $playlistURLs, currentIndex: playlistIndex, onFileTrashed: handleTrashedFile) { index in
-                playPlaylistItem(index)
+            PlaylistView(library: $library, currentItemID: playlistItemID, onFileTrashed: handleTrashedFile) { item, scope in
+                playlistScope = scope
+                let queue = playlistQueue
+                if let index = item.flatMap({ id in queue.firstIndex { $0.id == id } }) ?? (queue.isEmpty ? nil : 0) {
+                    playPlaylistItem(index)
+                }
             }
         }
         .alert("Unable to read video", isPresented: $showsSourceError) {
@@ -354,13 +360,9 @@ struct ContentView: View {
         } message: {
             Text(sourceErrorMessage)
         }
-        .onChange(of: playlistURLs) { _ in
-            if playlistIndex != nil {
-                playlistIndex = playlistURLs.firstIndex {
-                    StreamingProviderRegistry.shared.resolve($0)?.mediaID == currentVideoID
-                }
-            }
-            UserDefaults.standard.set(playlistURLs, forKey: "playlistURLs")
+        .onChange(of: library) { PlaylistLibrary.save($0) }
+        .onChange(of: playerDuration) { duration in
+            if let id = currentVideoID { PlaylistMetadata.recordDuration(duration, for: id) }
         }
         .onReceive(NotificationCenter.default.publisher(for: .toggleOpacity)) { _ in
             toggleOpacity()
@@ -591,12 +593,20 @@ struct ContentView: View {
         if currentVideoID?.hasPrefix("youtube-playlist:") == true {
             return { evaluatePlayer("window.ytNext();") }
         }
-        guard let index = playlistIndex, playlistURLs.indices.contains(index + 1) else { return nil }
+        guard let index = playlistIndex, playlistQueue.indices.contains(index + 1) else { return nil }
         return { playPlaylistItem(index + 1) }
     }
 
+    /// Playable items of the folder being played, in order.
+    private var playlistQueue: [PlaylistNode] {
+        playlistScope.flatMap { library.node($0)?.children?.items } ?? library.items
+    }
+
+    private var playlistIndex: Int? {
+        playlistItemID.flatMap { id in playlistQueue.firstIndex { $0.id == id } }
+    }
+
     func loadStreamingURL(_ urlString: String, rememberAsLast: Bool = true) {
-        playlistIndex = nil
         let initialMedia = StreamingProviderRegistry.shared.resolve(urlString)
         if let mediaID = initialMedia?.mediaID {
             let savedTime = playbackPositions[mediaID]
@@ -652,9 +662,12 @@ struct ContentView: View {
     }
 
     private func playPlaylistItem(_ index: Int) {
-        guard playlistURLs.indices.contains(index),
-              let media = StreamingProviderRegistry.shared.resolve(playlistURLs[index]) else { return }
-        playlistIndex = index
+        let queue = playlistQueue
+        guard queue.indices.contains(index), let media = queue[index].media else { return }
+        playlistItemID = queue[index].id
+        library.markPlayed(queue[index].id)
+        UserDefaults.standard.set(queue[index].id.uuidString, forKey: PlaylistLibrary.rootLastPlayedKey)
+        UserDefaults.standard.set(playlistScope?.uuidString ?? "", forKey: PlaylistLibrary.scopeKey)
         showingPlaylist = false
         loadMedia(media, startTime: 0, rememberAsLast: true)
     }
@@ -665,7 +678,7 @@ struct ContentView: View {
             currentVideoID = nil
             currentSourceURL = nil
             currentVideoTitle = ""
-            playlistIndex = nil
+            playlistItemID = nil
             playerState = -1
             playerCurrentTime = 0
             playerDuration = 0
@@ -682,14 +695,54 @@ struct ContentView: View {
 
     private func advancePlaylist() {
         guard let index = playlistIndex else { return }
-        if playlistURLs.indices.contains(index + 1) {
-            playPlaylistItem(index + 1)
-        } else {
-            playlistIndex = nil
+        let queue = playlistQueue
+        let next: Int? = switch playlistRepeat {
+        case .one: index
+        case .all: queue.indices.contains(index + 1) ? index + 1 : 0
+        case .off: queue.indices.contains(index + 1) ? index + 1 : nil
         }
+        guard let next else {
+            // Finished the folder: next time it starts from the beginning.
+            if let finished = playlistItemID {
+                library.clearPlayed(finished)
+                if UserDefaults.standard.string(forKey: PlaylistLibrary.rootLastPlayedKey) == finished.uuidString {
+                    UserDefaults.standard.removeObject(forKey: PlaylistLibrary.rootLastPlayedKey)
+                }
+            }
+            playlistItemID = nil
+            return
+        }
+        // Finished media keeps its end as the saved place; repeating starts it over.
+        if playlistRepeat != .off, let media = queue[next].media {
+            playbackPositions[media.mediaID] = 0
+        }
+        playPlaylistItem(next)
+    }
+
+    /// Keeps queue mode in step with whatever loads, so a playlist video opened any way
+    /// (launch restore, drop, Open URL, history) still advances to the next item.
+    private func syncPlaylistPosition(to mediaID: String) {
+        if let id = playlistItemID, library.node(id)?.media?.mediaID == mediaID { return }
+        let defaults = UserDefaults.standard
+        let lastID = defaults.string(forKey: PlaylistLibrary.rootLastPlayedKey).flatMap(UUID.init(uuidString:))
+        guard let item = library.item(playing: mediaID, preferring: lastID) else {
+            playlistItemID = nil
+            return
+        }
+        let parent = library.location(of: item.id)?.parent
+        switch defaults.string(forKey: PlaylistLibrary.scopeKey).map({ ($0, UUID(uuidString: $0)) }) {
+        case ("", _)?:
+            playlistScope = nil
+        case (_, let scope?)? where library.node(scope)?.children?.items.contains(where: { $0.id == item.id }) == true:
+            playlistScope = scope
+        default:
+            playlistScope = parent
+        }
+        playlistItemID = item.id
     }
 
     func loadMedia(_ media: StreamingMedia, startTime: Double, rememberAsLast: Bool) {
+        syncPlaylistPosition(to: media.mediaID)
         // Every load path (URL, history, queue, launch) resumes from the saved place.
         let startTime = savedPosition(for: media.mediaID) ?? startTime
         if media.playbackURL.isFileURL,
@@ -1353,6 +1406,7 @@ struct ContentView: View {
             window.collectionBehavior = alwaysOnTopBehaviors
         }
 
+        window.setCornerRadius(PlayerChrome.windowRadius)
         windowCoordinator.lockAspectRatio16x9 = settings.lockAspectRatio16x9Enabled
         isAlwaysOnTop = settings.alwaysOnTopEnabled
         applyAlwaysOnTopState(window)
@@ -1676,3 +1730,4 @@ final class PlayerPageSchemeHandler: NSObject, WKURLSchemeHandler {
 
     func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {}
 }
+

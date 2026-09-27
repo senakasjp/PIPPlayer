@@ -31,7 +31,7 @@ sample filename are not app assets or fixed content.
 | Panel border | White at 6% |
 | Panel shadow | Black at 20%, radius 12pt, downward offset 4pt |
 | Active playlist row | Accent at 16% |
-| Other playlist rows | White at 4% |
+| Other playlist rows | Clear, on a black-at-18% well |
 
 `PlayerChrome` owns the shared palette, panel dimensions, and typography tokens.
 
@@ -42,13 +42,14 @@ control bar in the original reference.
 
 | Element | Size or spacing |
 | --- | --- |
-| Panel height / corner radius | 72pt / 10pt |
+| Panel height / corner radius | 72pt / 4pt (`PlayerChrome.radius`) |
+| Window and sheet corners | 6pt (`PlayerChrome.windowRadius`, overrides macOS 26 rounding) |
 | Panel outer inset | 8pt horizontally and below |
 | Panel inner padding | 14pt horizontal, 8pt vertical |
 | Timeline row / control row | 20pt / 28pt |
 | Gap between rows | 4pt |
 | Timeline track / scrubber diameter | 3pt / 12pt |
-| Volume block | 88 × 26pt, 6pt corner radius |
+| Volume block | 88 × 26pt, 3pt corner radius |
 | Utility and previous/next icons | 16pt semibold |
 | Play/pause icon | 24pt semibold |
 | Utility button hit area | 28 × 28pt |
@@ -103,18 +104,62 @@ as it moves or resizes, including on monitors with negative screen coordinates.
 
 ## Playlist
 
-Use a dark slate sheet with the same coral accent, white text, a 24pt semibold
-heading, 24pt outer padding, and rounded row highlights. Row titles use native
+Use the player's theme: the slate panel at 94% over ultra-thin material, the
+coral accent, white text, a 24pt semibold heading and 24pt outer padding. The
+transport footer is a floating `playerPanel()` bar with the toolbar's 28pt
+`PlayerChrome.iconButton` controls and a coral Done button. Inner fields, buttons, badges and thumbnails use the 3pt
+`PlayerChrome.smallRadius`; avoid capsules and large rounding. The URL and search
+fields are plain fields on white at 6%. The list sits in a recessed well (black
+at 18%, white 6% border) and draws the playlist as a tree: 22pt indentation per
+level with white-at-15% connector lines (├ └ │), chevrons for folders, and
+rounded highlights on rows.
+
+The sheet is compact (12pt outer padding, 17pt title with an inline summary) and
+split into two panes: a folder sidebar (All Videos plus the folder tree with
+connector lines, a playing/resume marker and item counts) and a contents pane
+with a clickable breadcrumb, folder summary, and Play or “Continue … at 12:05”.
+The contents pane lists the open folder's direct children; searching covers the
+whole open folder. New items go into the open folder.
+
+Each folder remembers the item playback stopped at (`lastPlayedID`; the whole
+library uses `playlistLastPlayed`). Playing a folder continues there, and the
+video resumes from its saved position; Play from Beginning starts over. When a
+folder plays to the end its resume point is cleared. Opening a folder scrolls to the video where
+playback stopped; that row has an accent tint, "Stopped here", and a Resume
+button showing the saved time. Folders without a recorded resume point fall back
+to their first partly watched video.
+
+Rows follow a media-library layout, 44pt high with hairline separators: a
+selection checkbox, the tree branch or folder chevron, a position number inside
+the folder, 56×32 artwork (click to play; shows the saved-progress bar and a
+speaker icon while the row is playing), then title and source (channel, parent
+folder or host), an HD/4K badge, an outlined format pill with resolution/codec/fps,
+duration (`--:--` when unknown), an add-to-folder menu and a More menu. Local MP4
+details come from AVFoundation, artwork from QuickLook, YouTube titles/channels
+from oEmbed, and other durations from playback (`mediaDurations`). Row titles use native
 body typography with medium weight; metadata uses native caption typography.
 Highlight the currently playing entry with the accent tint and a speaker icon.
 
 Provide:
 
-- Add URL and Add Files actions for supported media.
-- Play, move up, move down, and remove-from-playlist row actions.
-- Clear Playlist, Shuffle, and Done actions in the footer.
+- Add URL and Add Files actions for supported media. Choosing a directory adds
+  it as a folder of its MP4/WebM/MKV files (recursively, name-sorted). New items
+  go into the selected folder, or the selected item's folder.
+- Nested folders (`PlaylistNode` tree, saved as JSON under `playlistLibrary`;
+  the legacy flat `playlistURLs` queue migrates on first load). Folders expand,
+  collapse, rename, and play as a unit.
+- Multi-selection with drag reordering (dropping before a row inserts into that
+  row's folder), Move To, New Folder with Selection, Rename, Copy Link, Show in
+  Finder, and ⌫ to remove. Missing local files show a warning icon.
+- Search across titles and URLs; results list matching videos flat.
+- Import M3U/M3U8 as a folder; export the selected folder or whole playlist.
+- Footer: Play All, Repeat (off/all/one), Shuffle, move up/down, remove,
+  Clear… (confirmed) and Done.
 - An empty state explaining how to add videos.
 - Visible error messages when adding or trashing a file fails.
+
+Playing an item plays through its folder; Play All plays the whole library in
+tree order. Repeat modes restart finished media from the beginning.
 
 ### Removing entries and original files
 
@@ -135,9 +180,9 @@ stop playback if it was the active file, and remove its saved position and histo
 
 The footer's Shuffle menu offers:
 
-- **Shuffle all videos:** randomize the entire visible playlist order.
+- **Shuffle all videos:** randomize the order inside every folder.
 - **Shuffle remaining videos:** preserve the current entry and preceding entries,
-  and randomize only those after the current video.
+  and randomize only those after the current video within its folder.
 
 Disable all-shuffle with fewer than two entries. Disable remaining-shuffle when
 there is no current playlist position or fewer than two upcoming entries.

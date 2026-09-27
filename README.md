@@ -43,7 +43,7 @@ IFrame methods: `loadVideoById`/`cueVideoById`, `playVideo`, `pauseVideo`, `seek
 - **MKV playback**: Open local `.mkv` files or direct HTTP(S) MKV URLs using the bundled VLC decoder. Supports the existing playback controls, history and playlists.
 - **MP4/WebM playback**: Drop a local `.mp4` or `.webm` file or open a direct HTTP(S) video URL. Codec support depends on macOS WebKit.
 - **YouTube playlists**: Open a URL containing `list=`; playlist position is preserved and previous/next controls navigate its entries.
-- **Saved queue**: Open **Player → Playlist…** with **⌘⇧P**, add links or multiple MP4/WebM files, reorder or remove entries, and play an item. The queue persists locally and advances when playback ends.
+- **Saved queue**: Open **Player → Playlist…** with **⌘⇧P**, add links, files or whole folders, organize them into nested folders, search, reorder by dragging, and play an item or folder. Supports repeat (all/one), shuffle, M3U import/export and a context menu (Rename, Move To, Copy Link, Show in Finder). The playlist persists locally and advances when playback ends.
 - **Drop handling**: Supports URL, text, and file drops; unsupported inputs are rejected. Delivery is deferred to avoid changing layout during the native drop callback.
 
 ### Library and History
