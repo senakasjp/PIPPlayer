@@ -259,20 +259,24 @@ struct ContentView: View {
                     WebView.receiveDrop(providers) { loadStreamingURL($0) }
                 }
 
-            if statusMessage != "" {
-                VStack {
-                    Spacer()
-                    Text(statusMessage)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: PlayerChrome.radius))
-                        .shadow(color: .black.opacity(0.35), radius: 10, y: 2)
-                        .padding(.bottom, 22)
+            // Chrome must not impose a minimum size that fights the 16:9 window lock.
+            Color.clear.overlay {
+                if statusMessage != "" {
+                    VStack {
+                        Spacer()
+                        Text(statusMessage)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: PlayerChrome.radius))
+                            .shadow(color: .black.opacity(0.35), radius: 10, y: 2)
+                            .padding(.bottom, 22)
+                    }
+                    .transition(.opacity.animation(.easeInOut(duration: 0.18)))
                 }
-                .transition(.opacity.animation(.easeInOut(duration: 0.18)))
             }
+            .allowsHitTesting(false)
 
             Color.clear.overlay {
                 ZStack {
@@ -317,10 +321,12 @@ struct ContentView: View {
 
             // Hover-only overlay bars — top title strip + bottom controls.
             // Visible only while the mouse is over the window (or scrubbing).
-            VStack {
-                playerTopBar
-                Spacer()
-                playerControlBar
+            Color.clear.overlay {
+                VStack {
+                    playerTopBar
+                    Spacer()
+                    playerControlBar
+                }
             }
             .opacity(barsVisible && !isTransparent ? 1 : 0)
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: barsVisible)
@@ -1730,4 +1736,3 @@ final class PlayerPageSchemeHandler: NSObject, WKURLSchemeHandler {
 
     func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {}
 }
-
