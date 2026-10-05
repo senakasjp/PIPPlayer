@@ -16,7 +16,7 @@ The Swift checks cover MP4/WebM resolution, file/text pasteboards, unsupported d
 
 ## Release build
 
-Run all bridge, hover, and source-error checks with `node --test Tests/*Tests.cjs`.
+Run all bridge, hover, overlay-window and source-error checks with `node --test Tests/*Tests.cjs`.
 The native Swift checks require macOS on Apple Silicon with Xcode installed at
 `/Applications/Xcode.app`. Source error checks cover failures before metadata,
 redirected-source identity, preserved resume positions, canceled or superseded
@@ -35,6 +35,32 @@ xcodebuild -project YouTubePlayer.xcodeproj -scheme YouTubePlayer -configuration
 - Inspect toolbar widths of 280, 360, 600, 700 and 900 points. Play/pause, seeking and playlist access must remain available; narrow layouts expose volume and queue navigation through Playback options.
 - Inspect playlist empty, populated and invalid-input states. Check keyboard focus and named accessibility controls.
 - Disable Hover Transparency with ⌘T when testing on-window controls; restore the original preference afterward.
+
+## Playlist persistence and Browse regression
+
+`PlaylistLibraryTests.swift` checks actual save/load with isolated defaults, legacy
+queue migration, preservation of metadata and order, deduplication of discovered
+files with older IDs, repeated refreshes and empty scans.
+`OverlayWindowTests.cjs` executes the production window-level methods against an
+AppKit window: focus reassertion and nested dialog dismissal must retain normal
+level until the last overlay closes, then restore the Always On Top setting.
+
+1. Enable Always On Top, open Playlist, and add a video URL.
+2. Open Add Files. Confirm the picker is above the player and attached to the
+   playlist; cancel and confirm the entry remains.
+3. Close the playlist and reopen from both the toolbar and **⌘⇧P**. Confirm the
+   same entries remain. Quit and relaunch, then check again.
+4. Open Import M3U and Export M3U from their menu. Confirm both are attached
+   sheets and Cancel returns to the list. Import a disposable M3U and check that
+   its entries appear without replacing existing entries.
+5. Add a supported file to `YouTubePlayer Media` beside the app and reopen the
+   playlist twice. Confirm it appears once and saved links remain.
+
+October 6, 2026: Release build and all eight CJS suites passed; native playlist
+tests passed. Live checks covered picker cancellation, M3U import, export
+cancellation, toolbar reopening and persistence after app relaunch. Installing
+the new build restored the existing 107-video playlist. Build and test logs are
+kept locally under `build/BrowsePlaylistFix/verification/` when present.
 
 ## Recorded results: September 16, 2026
 

@@ -54,6 +54,18 @@ struct WindowCornerRadius: NSViewRepresentable {
     func updateNSView(_ view: Probe, context: Context) {}
 }
 
+/// Centers the window hosting this view on its screen (used for sheets that shouldn't anchor under the title bar).
+struct CenterOnScreen: NSViewRepresentable {
+    final class Probe: NSView {
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            window?.center()
+        }
+    }
+    func makeNSView(context: Context) -> Probe { Probe() }
+    func updateNSView(_ view: Probe, context: Context) {}
+}
+
 extension View {
     /// The player's floating slate panel: tinted material, hairline border and soft shadow.
     func playerPanel(radius: CGFloat = PlayerChrome.radius) -> some View {

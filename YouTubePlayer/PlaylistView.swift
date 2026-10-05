@@ -3,6 +3,7 @@ import AppKit
 import UniformTypeIdentifiers
 import AVFoundation
 import QuickLookThumbnailing
+import CryptoKit
 
 // MARK: - Library model
 
@@ -18,12 +19,12 @@ struct PlaylistNode: Codable, Identifiable, Hashable {
     var isFolder: Bool { children != nil }
     var subfolders: [PlaylistNode] { children?.filter(\.isFolder) ?? [] }
 
-    static func folder(_ name: String, _ children: [PlaylistNode] = []) -> PlaylistNode {
-        PlaylistNode(name: name, children: children)
+    static func folder(_ name: String, _ children: [PlaylistNode] = [], id: UUID = UUID()) -> PlaylistNode {
+        PlaylistNode(id: id, name: name, children: children)
     }
 
-    static func item(_ url: String, title: String = "") -> PlaylistNode {
-        PlaylistNode(name: title, url: url)
+    static func item(_ url: String, title: String = "", id: UUID = UUID()) -> PlaylistNode {
+        PlaylistNode(id: id, name: title, url: url)
     }
 
     var media: StreamingMedia? { url.flatMap { StreamingProviderRegistry.shared.resolve($0) } }
@@ -41,38 +42,87 @@ enum PlaylistRepeat: String {
 
 enum PlaylistLibrary {
     static let key = "playlistLibrary"
+
+    static func load(defaults: UserDefaults = .standard) -> [PlaylistNode] {
+        if let data = defaults.data(forKey: key),
+           let nodes = try? JSONDecoder().decode([PlaylistNode].self, from: data) {
+            return nodes
+        }
+        return (defaults.stringArray(forKey: "playlistURLs") ?? []).map { .item($0) }
+    }
+
+    static func save(_ nodes: [PlaylistNode], defaults: UserDefaults = .standard) {
+        if let data = try? JSONEncoder().encode(nodes) {
+            defaults.set(data, forKey: key)
+        }
+    }
+
+    static func mergingMediaFolder(_ discovered: [PlaylistNode], into saved: [PlaylistNode]) -> [PlaylistNode] {
+        var knownFiles = Set(saved.items.compactMap { $0.fileURL?.standardizedFileURL })
+        var result = saved
+        func merge(_ nodes: [PlaylistNode], parent: UUID?) {
+            for node in nodes {
+                if let children = node.children {
+                    if result.node(node.id) != nil {
+                        merge(children, parent: node.id)
+                    } else {
+                        let newItems = children.items.compactMap { $0.fileURL?.standardizedFileURL }
+                        guard newItems.contains(where: { !knownFiles.contains($0) }) else { continue }
+                        var folder = node
+                        folder.children = []
+                        result.insert([folder], into: parent)
+                        merge(children, parent: folder.id)
+                    }
+                } else if let file = node.fileURL?.standardizedFileURL, knownFiles.insert(file).inserted {
+                    result.insert([node], into: parent)
+                }
+            }
+        }
+        merge(discovered, parent: nil)
+        return result
+    }
+
     /// Item playback stopped at when playing the whole library.
     static let rootLastPlayedKey = "playlistLastPlayed"
     /// Folder being played ("" = whole library), so queue mode survives relaunch.
     static let scopeKey = "playlistScope"
     static let mediaExtensions: Set<String> = ["mp4", "webm", "mkv"]
 
-    static func load() -> [PlaylistNode] {
-        if let data = UserDefaults.standard.data(forKey: key),
-           let nodes = try? JSONDecoder().decode([PlaylistNode].self, from: data) {
-            return nodes
-        }
-        // Migrate the original flat queue.
-        return (UserDefaults.standard.stringArray(forKey: "playlistURLs") ?? []).map { .item($0) }
+    /// The one folder beside the app that's always the playlist — no folder picking needed.
+    /// Subfolders inside it become categories.
+    static var mediaFolderURL: URL {
+        Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent("YouTubePlayer Media", isDirectory: true)
     }
 
-    static func save(_ nodes: [PlaylistNode]) {
-        if let data = try? JSONEncoder().encode(nodes) {
-            UserDefaults.standard.set(data, forKey: key)
-        }
+    /// Rebuilds the library straight from `mediaFolderURL`'s current contents.
+    static func loadFromMediaFolder() -> [PlaylistNode] {
+        let folder = mediaFolderURL
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let contents = (try? FileManager.default.contentsOfDirectory(
+            at: folder, includingPropertiesForKeys: [.isDirectoryKey], options: .skipsHiddenFiles)) ?? []
+        return contents
+            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+            .compactMap(node(forFile:))
+    }
+
+    /// Deterministic id from a file's path, so resume points survive re-scanning the folder on every launch.
+    private static func stableID(for path: String) -> UUID {
+        let digest = SHA256.hash(data: Data(path.utf8))
+        return NSUUID(uuidBytes: Array(digest.prefix(16))) as UUID
     }
 
     /// A local video file becomes an item; a directory becomes a folder of its supported videos.
     static func node(forFile file: URL) -> PlaylistNode? {
+        let id = stableID(for: file.path)
         if (try? file.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
             let contents = (try? FileManager.default.contentsOfDirectory(
                 at: file, includingPropertiesForKeys: [.isDirectoryKey], options: .skipsHiddenFiles)) ?? []
             let children = contents
                 .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
                 .compactMap(node(forFile:))
-            return children.isEmpty ? nil : .folder(file.lastPathComponent, children)
+            return children.isEmpty ? nil : .folder(file.lastPathComponent, children, id: id)
         }
-        return mediaExtensions.contains(file.pathExtension.lowercased()) ? .item(file.absoluteString) : nil
+        return mediaExtensions.contains(file.pathExtension.lowercased()) ? .item(file.absoluteString, id: id) : nil
     }
 
     static func m3u(_ items: [PlaylistNode]) -> String {
@@ -197,6 +247,12 @@ extension Array where Element == PlaylistNode {
 
 // MARK: - Playlist sheet
 
+private struct PlaylistPanelAnchor: NSViewRepresentable {
+    let view: NSView
+    func makeNSView(context: Context) -> NSView { view }
+    func updateNSView(_ view: NSView, context: Context) {}
+}
+
 struct PlaylistView: View {
     @Binding var library: [PlaylistNode]
     let currentItemID: UUID?
@@ -208,6 +264,7 @@ struct PlaylistView: View {
     @AppStorage("playlistRepeat") private var repeatMode = PlaylistRepeat.off
     @State private var selection = Set<UUID>()
     @State private var query = ""
+    @State private var panelAnchor = NSView(frame: .zero)
     @State private var newURL = ""
     @State private var errorMessage: String?
     @State private var fileToTrash: URL?
@@ -256,6 +313,8 @@ struct PlaylistView: View {
         .background(PlayerChrome.panel.opacity(0.94))
         .background(.ultraThinMaterial)
         .background(WindowCornerRadius())
+        .background(CenterOnScreen())
+        .background(PlaylistPanelAnchor(view: panelAnchor))
         .foregroundStyle(.white)
         .tint(PlayerChrome.accent)
         .environment(\.colorScheme, .dark)
@@ -1081,12 +1140,25 @@ struct PlaylistView: View {
         panel.canChooseDirectories = true
         panel.message = "Choose videos, or folders to add as playlist folders."
         panel.prompt = "Add to Playlist"
-        guard panel.runModal() == .OK else { return }
-        let nodes = panel.urls.compactMap(PlaylistLibrary.node(forFile:))
-        if nodes.isEmpty {
-            errorMessage = "No MP4, WebM or MKV files were found in the selection."
+        presentPanel(panel) { response in
+            guard response == .OK else { return }
+            let nodes = panel.urls.compactMap(PlaylistLibrary.node(forFile:))
+            if nodes.isEmpty {
+                errorMessage = "No MP4, WebM or MKV files were found in the selection."
+            } else {
+                add(nodes)
+            }
+        }
+    }
+
+    private func presentPanel(_ panel: NSSavePanel, completion: @escaping (NSApplication.ModalResponse) -> Void) {
+        let owner = panelAnchor.window
+        NSApp.activate(ignoringOtherApps: true)
+        if let owner {
+            owner.makeKeyAndOrderFront(nil)
+            panel.beginSheetModal(for: owner, completionHandler: completion)
         } else {
-            add(nodes)
+            panel.begin(completionHandler: completion)
         }
     }
 
@@ -1174,16 +1246,18 @@ struct PlaylistView: View {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = ["m3u", "m3u8"].compactMap { UTType(filenameExtension: $0) }
         panel.prompt = "Import"
-        guard panel.runModal() == .OK, let file = panel.url else { return }
-        guard let text = try? String(contentsOf: file, encoding: .utf8) else {
-            errorMessage = "Could not read \(file.lastPathComponent)."
-            return
-        }
-        let items = PlaylistLibrary.parseM3U(text, relativeTo: file.deletingLastPathComponent())
-        if items.isEmpty {
-            errorMessage = "\(file.lastPathComponent) has no supported videos."
-        } else {
-            add([.folder(file.deletingPathExtension().lastPathComponent, items)])
+        presentPanel(panel) { response in
+            guard response == .OK, let file = panel.url else { return }
+            guard let text = try? String(contentsOf: file, encoding: .utf8) else {
+                errorMessage = "Could not read \(file.lastPathComponent)."
+                return
+            }
+            let items = PlaylistLibrary.parseM3U(text, relativeTo: file.deletingLastPathComponent())
+            if items.isEmpty {
+                errorMessage = "\(file.lastPathComponent) has no supported videos."
+            } else {
+                add([.folder(file.deletingPathExtension().lastPathComponent, items)])
+            }
         }
     }
 
@@ -1191,12 +1265,14 @@ struct PlaylistView: View {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [UTType(filenameExtension: "m3u") ?? .plainText]
         panel.nameFieldStringValue = (exportFolder?.title ?? "Playlist") + ".m3u"
-        guard panel.runModal() == .OK, let file = panel.url else { return }
-        do {
-            try PlaylistLibrary.m3u(exportItems).write(to: file, atomically: true, encoding: .utf8)
-            errorMessage = nil
-        } catch {
-            errorMessage = "Could not export: \(error.localizedDescription)"
+        presentPanel(panel) { response in
+            guard response == .OK, let file = panel.url else { return }
+            do {
+                try PlaylistLibrary.m3u(exportItems).write(to: file, atomically: true, encoding: .utf8)
+                errorMessage = nil
+            } catch {
+                errorMessage = "Could not export: \(error.localizedDescription)"
+            }
         }
     }
 

@@ -41,6 +41,26 @@ struct PlaylistLibraryTests {
         let decoded = try JSONDecoder().decode([PlaylistNode].self, from: JSONEncoder().encode(library))
         precondition(decoded == library)
 
+        let suite = "PlaylistLibraryTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set([a.url!, b.url!], forKey: "playlistURLs")
+        precondition(PlaylistLibrary.load(defaults: defaults).map(\.url) == [a.url, b.url], "legacy videos survive")
+        PlaylistLibrary.save(library, defaults: defaults)
+        precondition(PlaylistLibrary.load(defaults: defaults) == library, "saved videos and edits survive relaunch")
+        let local = PlaylistNode.item("file:///tmp/videos/old.mp4", title: "My title")
+        let fresh = PlaylistNode.item("file:///tmp/videos/new.mp4")
+        let saved = library + [.folder("Custom", [local])]
+        let scanned = [PlaylistNode.folder("Scanned", [.item(local.url!), fresh])]
+        let merged = PlaylistLibrary.mergingMediaFolder(scanned, into: saved)
+        precondition(Array(merged.prefix(saved.count)) == saved, "browse refresh preserves order, titles and resume points")
+        precondition(merged.items.filter { $0.url == local.url }.count == 1, "old random IDs do not duplicate scanned files")
+        precondition(merged.items.last?.id == fresh.id, "new media folder files are discovered")
+        precondition(PlaylistLibrary.mergingMediaFolder(scanned, into: merged) == merged, "repeat browse is stable")
+        precondition(PlaylistLibrary.mergingMediaFolder([], into: merged) == merged, "empty scan never erases saved videos")
+        PlaylistLibrary.save(merged, defaults: defaults)
+        precondition(PlaylistLibrary.load(defaults: defaults) == merged, "browse additions survive relaunch")
+
         let base = URL(fileURLWithPath: "/tmp/videos")
         let m3u = PlaylistLibrary.m3u(library.items) + "clip.mkv\n#comment\nnot a video\n"
         let parsed = PlaylistLibrary.parseM3U(m3u, relativeTo: base)

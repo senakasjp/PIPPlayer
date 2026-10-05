@@ -50,11 +50,12 @@ struct ContentView: View {
     @State private var playerVolume: Double = 100
     @State private var isScrubbing = false
     @State private var currentVideoTitle: String = ""
-    @State private var library = PlaylistLibrary.load()
+    @State private var library = PlaylistLibrary.mergingMediaFolder(PlaylistLibrary.loadFromMediaFolder(), into: PlaylistLibrary.load())
     @State private var playlistScope: UUID?      // folder being played; nil plays the whole library
     @State private var playlistItemID: UUID?
     @AppStorage("playlistRepeat") private var playlistRepeat = PlaylistRepeat.off
     @State private var showingPlaylist = false
+    @State private var overlayPresentationCount = 0
     @State private var pendingPlaylistIndex = 0
     @State private var videoZoom = 1.0
 
@@ -228,7 +229,7 @@ struct ContentView: View {
     }
 
     // Bars are visible when hovered (or while the scrub slider is active).
-    private var barsVisible: Bool { (isHovering || isScrubbing || playerState != 1) && currentVideoID != nil }
+    private var barsVisible: Bool { isHovering || isScrubbing || playerState != 1 }
 
     var body: some View {
         ZStack {
@@ -349,7 +350,14 @@ struct ContentView: View {
             promptForURL()
         }
         .onReceive(NotificationCenter.default.publisher(for: .openPlaylist)) { _ in
-            showingPlaylist = true
+            openPlaylist()
+        }
+        .onChange(of: showingPlaylist) { isShowing in
+            if isShowing {
+                suspendAlwaysOnTopForOverlay()
+            } else {
+                restoreAlwaysOnTopAfterOverlay()
+            }
         }
         .sheet(isPresented: $showingPlaylist) {
             PlaylistView(library: $library, currentItemID: playlistItemID, onFileTrashed: handleTrashedFile) { item, scope in
@@ -410,6 +418,9 @@ struct ContentView: View {
             persistCurrentPlaybackPosition()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            reassertAlwaysOnTopState()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEndSheetNotification)) { _ in
             reassertAlwaysOnTopState()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
@@ -573,7 +584,7 @@ struct ContentView: View {
             onSeek: { playerSeek(to: playerCurrentTime) },
             onPrevious: previousPlaylistAction,
             onNext: nextPlaylistAction,
-            onPlaylist: { showingPlaylist = true },
+            onPlaylist: openPlaylist,
             onFullscreen: { getWindow()?.toggleFullScreen(nil) },
             onAlwaysOnTop: { setAlwaysOnTop(to: !isAlwaysOnTop) },
             isAlwaysOnTop: isAlwaysOnTop,
@@ -632,6 +643,17 @@ struct ContentView: View {
         loadStreamingURL(urlString, rememberAsLast: rememberAsLast)
     }
 
+    private func openPlaylist() {
+        library = PlaylistLibrary.mergingMediaFolder(PlaylistLibrary.loadFromMediaFolder(), into: library)
+        PlaylistLibrary.save(library)
+        showingPlaylist = true
+        if let window = getWindow() {
+            window.ignoresMouseEvents = false
+            window.makeKeyAndOrderFront(nil)
+        }
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
     func promptForURL() {
         let alert = NSAlert()
         alert.messageText = "Open Streaming URL"
@@ -645,7 +667,11 @@ struct ContentView: View {
         alert.addButton(withTitle: "Open")
         alert.addButton(withTitle: "Cancel")
 
-        if alert.runModal() == .alertFirstButtonReturn {
+        suspendAlwaysOnTopForOverlay()
+        let response = alert.runModal()
+        restoreAlwaysOnTopAfterOverlay()
+
+        if response == .alertFirstButtonReturn {
             let urlString = textField.stringValue
             loadStreamingURL(urlString)
         }
@@ -1438,11 +1464,24 @@ struct ContentView: View {
         // Dispatch to next run loop to avoid modifying window during layout
         DispatchQueue.main.async {
             // Just use window level - don't modify collection behavior
-            let targetLevel: NSWindow.Level = self.isAlwaysOnTop ? self.alwaysOnTopLevel : .normal
+            let hasOverlay = self.showingPlaylist || self.overlayPresentationCount > 0 || window.attachedSheet != nil
+            let targetLevel: NSWindow.Level = self.isAlwaysOnTop && !hasOverlay ? self.alwaysOnTopLevel : .normal
             if window.level != targetLevel {
                 window.level = targetLevel
             }
         }
+    }
+
+    private func suspendAlwaysOnTopForOverlay() {
+        overlayPresentationCount += 1
+        guard let window = getWindow() else { return }
+        window.level = .normal
+    }
+
+    private func restoreAlwaysOnTopAfterOverlay() {
+        overlayPresentationCount = max(0, overlayPresentationCount - 1)
+        guard let window = getWindow() else { return }
+        applyAlwaysOnTopState(window)
     }
 
     private func reassertAlwaysOnTopState() {

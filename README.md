@@ -44,6 +44,8 @@ IFrame methods: `loadVideoById`/`cueVideoById`, `playVideo`, `pauseVideo`, `seek
 - **MP4/WebM playback**: Drop a local `.mp4` or `.webm` file or open a direct HTTP(S) video URL. Codec support depends on macOS WebKit.
 - **YouTube playlists**: Open a URL containing `list=`; playlist position is preserved and previous/next controls navigate its entries.
 - **Saved queue**: Open **Player → Playlist…** with **⌘⇧P**, add links, files or whole folders, organize them into nested folders, search, reorder by dragging, and play an item or folder. Supports repeat (all/one), shuffle, M3U import/export and a context menu (Rename, Move To, Copy Link, Show in Finder). The playlist persists locally and advances when playback ends.
+- **Media folder discovery**: Opening the playlist discovers supported videos in `YouTubePlayer Media` beside the app. New files are merged into the saved list; existing links, folders, titles, ordering and resume points are retained. An empty scan does not clear saved videos. Previously saved queues are restored on launch.
+- **Browse dialogs**: Add Files, Import M3U and Export M3U open as sheets attached to the playlist. Cancelling returns to the unchanged list. Toolbar and menu playlist actions use the same refresh behavior.
 - **Drop handling**: Supports URL, text, and file drops; unsupported inputs are rejected. Delivery is deferred to avoid changing layout during the native drop callback.
 
 ### Library and History
@@ -58,7 +60,7 @@ IFrame methods: `loadVideoById`/`cueVideoById`, `playVideo`, `pauseVideo`, `seek
 
 ### Window and Menu Bar Behavior
 - **Menu Bar Control**: Quick access to player features through a persistent status item
-- **Floating Window**: Always stays on top of other applications (toggleable)
+- **Floating Window**: Stays on top of other applications (toggleable), temporarily using normal window level while the playlist or URL dialog is open so the player cannot cover it. Focus changes preserve this suspension; closing the overlays restores the configured level.
 - **Hover Transparency**: Window becomes transparent and click-through on hover
 - **80% Transparency Preset**: One-tap 80% opacity that stays clickable (⌘8)
 - **Opacity Dimmer**: Toggle to 25% opacity while keeping clicks active (⌘P)
@@ -240,8 +242,8 @@ html, body { overflow: hidden !important; margin: 0 !important; background: #000
 - **Combine**: Reactive state management
 
 ### Window Levels
-- `.floating`: Window stays above normal windows
-- `.normal`: Standard window behavior
+- `.statusBar`: Player stays above normal windows when Always On Top is enabled
+- `.normal`: Used when Always On Top is disabled or while a playlist, sheet or URL dialog is open
 
 ### Transparency Implementation
 - Uses `window.alphaValue` for visual transparency (0.0 - 1.0)
@@ -257,9 +259,10 @@ Version/17.0 Safari/605.1.15
 
 ## Installation
 
-1. Build the project in Xcode
-2. Copy `YouTubePlayer.app` to `/Applications/`
-3. Launch from Applications folder or Spotlight
+1. Build the project using Xcode or the Release command below.
+2. Quit the running player with **⌘Q** and back up the existing app if needed.
+3. Copy the newly built `YouTubePlayer.app` to `/Applications/`.
+4. Launch `/Applications/YouTubePlayer.app`. Building alone does not update an already installed or running copy.
 
 ## Usage
 
@@ -347,18 +350,34 @@ Potential features for future versions:
 You can also rebuild without opening Xcode:
 
 ```bash
+sh Scripts/setup-vlckit.sh
 xcodebuild \
   -project YouTubePlayer.xcodeproj \
   -scheme YouTubePlayer \
   -configuration Release \
-  -derivedDataPath ./DerivedDataBuild \
-  clean build
+  -derivedDataPath /tmp/YouTubePlayerBuild \
+  ENABLE_HARDENED_RUNTIME=NO \
+  build
 ```
 
-- The signed app will be at `DerivedDataBuild/Build/Products/Release/YouTubePlayer.app`.
-- Copy it to `/Applications` (or wherever you prefer) to run it outside Xcode.
+This is a local ad-hoc build. Distribution builds require appropriate signing for
+both the app and embedded framework. After quitting the installed player:
+
+```bash
+ditto /tmp/YouTubePlayerBuild/Build/Products/Release/YouTubePlayer.app /Applications/YouTubePlayer.app
+open /Applications/YouTubePlayer.app
+```
+
+If the system `xcodebuild` launcher reports an architecture error on Apple Silicon,
+use `/usr/bin/arch -arm64 /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild`
+with the same build arguments.
 
 ## Verification
+
+October 6, 2026: the Release build, eight CJS regression suites and native playlist
+library tests passed. Native checks verified Browse/Import/Export sheet presentation,
+cancellation, M3U import, toolbar reopening and playlist persistence after relaunch.
+The installed app was updated and its executable hash matched the Release build.
 
 See [Tests/README.md](Tests/README.md) for regression commands and manual checks. The September 16, 2026 Release build passed, along with media/drop and playlist bridge checks. Native checks covered MP4 playback and queue advancement; modern toolbar and playlist captures are in `build/UpdatedPlayer/verification/` when the packaged build is present. The original reported drag crash was not reproduced, so the drop changes are hardening rather than a confirmed reproduction-based fix. Full VoiceOver operation and measured contrast were not audited.
 
