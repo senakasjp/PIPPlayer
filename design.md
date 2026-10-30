@@ -198,6 +198,17 @@ there is no current playlist position or fewer than two upcoming entries.
 Shuffling changes the saved playlist order without restarting current playback;
 the active-item highlight follows the playing video to its new position.
 
+## Window placement
+
+Keep every window fully inside the visible frame of a connected display: clamp
+the player on launch, when it becomes key, and after display changes; center a
+window whose saved position no longer intersects any display; shrink a window
+that is larger than the usable area; and leave an already visible position
+untouched. Apply the same clamp to the playlist sheet after it is sized and
+again after a tiling window manager has placed it. The playlist sheet may shrink
+to 720pt wide so it still fits smaller displays. Never fight an intentional
+on-screen position.
+
 ## Playback and keyboard behavior
 
 - **Space:** play or pause; holding Space does not repeatedly toggle playback.

@@ -298,7 +298,7 @@ struct PlaylistView: View {
                 sidebar
                     .frame(minWidth: 180, idealWidth: 220, maxWidth: 360, maxHeight: .infinity)
                 detail
-                    .frame(minWidth: 600, maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(minWidth: 520, maxWidth: .infinity, maxHeight: .infinity)
             }
             .background(Color.black.opacity(0.18))
             .clipShape(RoundedRectangle(cornerRadius: PlayerChrome.radius))
@@ -308,7 +308,7 @@ struct PlaylistView: View {
                 .overlay(alignment: .top) { Color.white.opacity(0.06).frame(height: 1) }
         }
         .padding(PlayerChrome.contentPadding)
-        .frame(minWidth: 820, idealWidth: 1040, minHeight: 460, idealHeight: 640)
+        .frame(minWidth: 720, idealWidth: 1040, minHeight: 440, idealHeight: 640)
         .playerPanel(radius: PlayerChrome.windowRadius)
         .background(WindowCornerRadius())
         .background(CenterOnScreen())
@@ -811,7 +811,7 @@ struct PlaylistView: View {
         .contentShape(Rectangle())
         .onHover { hoveredID = $0 ? node.id : (hoveredID == node.id ? nil : hoveredID) }
         .task(id: node.url) { if let url = node.url { await metadata.load(url) } }
-        .help(node.url ?? displayTitle(node))
+        .help(displayTitle(node))
         .listRowSeparator(.hidden)
         .listRowInsets(EdgeInsets(top: 0, leading: 4, bottom: 0, trailing: 4))
         .listRowBackground(

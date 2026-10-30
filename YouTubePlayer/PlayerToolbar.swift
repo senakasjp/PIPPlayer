@@ -91,6 +91,64 @@ extension NSWindow {
         typealias Setter = @convention(c) (AnyObject, Selector, CGFloat) -> Void
         unsafeBitCast(method_getImplementation(method), to: Setter.self)(self, selector, radius)
     }
+
+    /// Keeps the whole window inside the usable area of a screen. Tiling window
+    /// managers (AeroSpace, Rectangle, …) and unplugged displays can leave a
+    /// window partly or entirely off-screen; this pulls it back so its controls
+    /// and content stay reachable.
+    func clampToVisibleScreen(margin: CGFloat = 12, centerIfOffscreen: Bool = false) {
+        guard let visible = (sheetParent?.screen ?? NSScreen.bestScreen(for: frame))?.visibleFrame ?? NSScreen.main?.visibleFrame else { return }
+        let margin = max(0, margin)
+        let bounds = visible.insetBy(dx: min(margin, visible.width / 4), dy: min(margin, visible.height / 4))
+        var frame = self.frame
+
+        // Never keep a window larger than the space available on the display.
+        frame.size.width = min(frame.width, bounds.width)
+        frame.size.height = min(frame.height, bounds.height)
+
+        let intersects = bounds.intersects(frame)
+        if centerIfOffscreen, !intersects {
+            frame.origin.x = bounds.midX - frame.width / 2
+            frame.origin.y = bounds.midY - frame.height / 2
+        }
+        frame.origin.x = min(max(frame.origin.x, bounds.minX), bounds.maxX - frame.width)
+        frame.origin.y = min(max(frame.origin.y, bounds.minY), bounds.maxY - frame.height)
+
+        if frame != self.frame {
+            setFrame(frame, display: true)
+        }
+    }
+
+    /// Centers the window on the screen it belongs to (or the main screen), fitting
+    /// it inside the visible area first. Used when opening the playlist and when a
+    /// saved frame no longer maps to any connected display.
+    func centerOnVisibleScreen(margin: CGFloat = 12) {
+        guard let visible = (sheetParent?.screen ?? NSScreen.bestScreen(for: frame))?.visibleFrame ?? NSScreen.main?.visibleFrame else { return }
+        let margin = max(0, margin)
+        let bounds = visible.insetBy(dx: min(margin, visible.width / 4), dy: min(margin, visible.height / 4))
+        var size = frame.size
+        size.width = min(size.width, bounds.width)
+        size.height = min(size.height, bounds.height)
+        setFrame(NSRect(x: bounds.midX - size.width / 2, y: bounds.midY - size.height / 2,
+                        width: size.width, height: size.height), display: true)
+    }
+}
+
+extension NSScreen {
+    /// The display a frame belongs to: the one with the largest overlap, or the main
+    /// display when nothing overlaps (for example after a monitor was disconnected).
+    static func bestScreen(for frame: NSRect) -> NSScreen? {
+        let screens = NSScreen.screens
+        let best = screens.max { a, b in
+            a.visibleFrame.intersection(frame).area < b.visibleFrame.intersection(frame).area
+        }
+        if let best, best.visibleFrame.intersects(frame) { return best }
+        return NSScreen.main ?? screens.first
+    }
+}
+
+private extension NSRect {
+    var area: CGFloat { isNull || isEmpty ? 0 : width * height }
 }
 
 /// Applies `PlayerChrome.windowRadius` to the window hosting this view (used for sheets).
@@ -105,12 +163,37 @@ struct WindowCornerRadius: NSViewRepresentable {
     func updateNSView(_ view: Probe, context: Context) {}
 }
 
-/// Centers the window hosting this view on its screen (used for sheets that shouldn't anchor under the title bar).
+/// Centers the window hosting this view on its screen (used for sheets that shouldn't anchor under the title bar)
+/// and keeps it fully visible after window managers or display changes move it.
 struct CenterOnScreen: NSViewRepresentable {
     final class Probe: NSView {
+        private var observers: [NSObjectProtocol] = []
+
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
-            window?.center()
+            observers.forEach(NotificationCenter.default.removeObserver)
+            observers = []
+            guard let window else { return }
+
+            // Center after the sheet has been sized, then once more after a tiling
+            // window manager has had a chance to place it.
+            DispatchQueue.main.async {
+                window.centerOnVisibleScreen()
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak window] in
+                guard let window, window.isVisible else { return }
+                window.clampToVisibleScreen()
+            }
+
+            observers.append(NotificationCenter.default.addObserver(
+                forName: NSWindow.didResizeNotification, object: window, queue: .main
+            ) { [weak window] _ in
+                window?.clampToVisibleScreen()
+            })
+        }
+
+        deinit {
+            observers.forEach(NotificationCenter.default.removeObserver)
         }
     }
     func makeNSView(context: Context) -> Probe { Probe() }

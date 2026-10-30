@@ -444,6 +444,16 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
             guard let eventWindow = notification.object as? NSWindow, isPlayerWindow(eventWindow) else { return }
             reassertAlwaysOnTopState()
+            // Recover a window that a window manager or a display change left
+            // partly off-screen, while leaving intentional on-screen positions be.
+            eventWindow.clampToVisibleScreen()
+            eventWindow.attachedSheet?.clampToVisibleScreen()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)) { _ in
+            DispatchQueue.main.async {
+                getWindow()?.clampToVisibleScreen(centerIfOffscreen: true)
+                getWindow()?.attachedSheet?.clampToVisibleScreen()
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { notification in
             guard let closingWindow = notification.object as? NSWindow, closingWindow == getWindow() else { return }
@@ -711,6 +721,11 @@ struct ContentView: View {
         if let window = getWindow() {
             window.ignoresMouseEvents = false
             window.makeKeyAndOrderFront(nil)
+            // Give the window manager a moment to place the sheet, then pull it
+            // back on-screen if part of it ended up outside the display.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak window] in
+                window?.attachedSheet?.clampToVisibleScreen()
+            }
         }
         NSApp.activate(ignoringOtherApps: true)
     }
@@ -1267,7 +1282,7 @@ struct ContentView: View {
         }
         applyWindowConfiguration(window)
 
-        // Default to a small 16:9 window if no saved frame exists
+        // Default to a small 16:9 window in the middle of the screen if no saved frame exists
         if UserDefaults.standard.string(forKey: playerWindowFrameKey) == nil,
            let screen = window.screen ?? NSScreen.main {
             let w: CGFloat = 1024
@@ -1276,6 +1291,9 @@ struct ContentView: View {
             let y = screen.visibleFrame.midY - h / 2
             window.setFrame(NSRect(x: x, y: y, width: w, height: h), display: false)
         }
+        // Also covers the case where the window manager moved the restored frame
+        // after the first pass, or the display changed while the app was starting.
+        window.clampToVisibleScreen(centerIfOffscreen: true)
 
         // Start opaque and clickable
         window.alphaValue = 1.0
@@ -1626,6 +1644,9 @@ struct ContentView: View {
         let frame = NSRectFromString(frameString)
         guard frame.width > 0, frame.height > 0 else { return }
         window.setFrame(frame, display: false)
+        // A saved frame may belong to a disconnected display or to a position
+        // chosen by a tiling window manager; pull it fully back on-screen.
+        window.clampToVisibleScreen(centerIfOffscreen: true)
     }
 
     private func startPersistingWindowFrame(_ window: NSWindow) {
