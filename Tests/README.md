@@ -7,8 +7,9 @@ work=$(mktemp -d)
 swiftc -module-cache-path "$work/modules" YouTubePlayer/StreamingProvider.swift YouTubePlayer/WebView.swift Tests/MediaRegressionTests.swift -o "$work/media-tests"
 "$work/media-tests"
 node Tests/PlaylistBridgeTests.cjs
-swiftc -parse-as-library -module-cache-path "$work/modules" YouTubePlayer/StreamingProvider.swift YouTubePlayer/PlaylistView.swift YouTubePlayer/PlayerToolbar.swift Tests/PlaylistLibraryTests.swift -o "$work/library-tests"
-"$work/library-tests"
+fw="$PWD/Frameworks/VLCKit.xcframework/macos-arm64_x86_64"
+swiftc -parse-as-library -module-cache-path "$work/modules" -F "$fw" YouTubePlayer/StreamingProvider.swift YouTubePlayer/MKVPlayback.swift YouTubePlayer/PlaylistView.swift YouTubePlayer/PlayerToolbar.swift Tests/PlaylistLibraryTests.swift -framework VLCKit -o "$work/library-tests"
+DYLD_FRAMEWORK_PATH="$fw" "$work/library-tests"
 rm -rf "$work"
 ```
 

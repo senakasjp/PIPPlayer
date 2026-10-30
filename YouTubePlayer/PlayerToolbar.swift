@@ -14,7 +14,7 @@ enum PlayerChrome {
     static let inset: CGFloat = 8
     static let padding: CGFloat = 14
     static let titleSize: CGFloat = 24
-    static let iconSize: CGFloat = 16
+    static let iconSize: CGFloat = 18
     static let timeSize: CGFloat = 11
     static let eqPopoverWidth: CGFloat = 400
     static let eqPadding: CGFloat = 16
@@ -25,7 +25,7 @@ enum PlayerChrome {
     static let eqBandSpacing: CGFloat = 7
     static let eqBandWidth: CGFloat = 44
     static let eqSliderWidth: CGFloat = 28
-    static let eqSliderHeight: CGFloat = 120
+    static let eqSliderHeight: CGFloat = 132
     static let eqValueSize: CGFloat = 10
     static let eqValueHeight: CGFloat = 14
     static let eqTrackOpacity = 0.20
@@ -33,6 +33,7 @@ enum PlayerChrome {
     static let eqAccentOpacity = 0.90
     static let eqDisabledAccentOpacity = 0.25
     static let eqTickOpacity = 0.16
+    static let eqZeroTickOpacity = 0.38
     static let eqDisabledTickOpacity = 0.08
     static let eqTrackInset: CGFloat = 8
     static let eqTrackWidth: CGFloat = 3
@@ -40,24 +41,44 @@ enum PlayerChrome {
     static let eqTickCount = 12
     static let eqTickInnerOffset: CGFloat = 4
     static let eqTickOuterOffset: CGFloat = 8
-    static let eqKnobWidth: CGFloat = 24
-    static let eqKnobHeight: CGFloat = 10
+    static let eqKnobWidth: CGFloat = 26
+    static let eqKnobHeight: CGFloat = 11
     static let eqKnobFill = NSColor(calibratedWhite: 0.82, alpha: 1)
-    static let eqKnobDisabledOpacity = 0.45
+    static let eqKnobDisabledOpacity = 0.58
     static let eqKnobStrokeOpacity = 0.50
     static let eqKnobDisabledStrokeOpacity = 0.18
 
     /// Borderless 28pt icon control shared by the toolbar and playlist.
     static func iconButton(_ symbol: String, _ label: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: iconSize, weight: .semibold))
-                .frame(width: 28, height: 28)
-                .contentShape(Rectangle())
+        IconControlButton(symbol: symbol, label: label, action: action)
+    }
+
+    /// Vector SF Symbol control with a soft hover surface, so the icon set reads
+    /// crisp on Retina displays and still gives pointer feedback in dark panels.
+    private struct IconControlButton: View {
+        let symbol: String
+        let label: String
+        let action: () -> Void
+        @State private var hovering = false
+        @Environment(\.isEnabled) private var isEnabled
+
+        var body: some View {
+            Button(action: action) {
+                Image(systemName: symbol)
+                    .symbolRenderingMode(.monochrome)
+                    .font(.system(size: PlayerChrome.iconSize, weight: .semibold))
+                    .frame(width: 28, height: 28)
+                    .background(
+                        RoundedRectangle(cornerRadius: 5, style: .continuous)
+                            .fill(.white.opacity(hovering && isEnabled ? 0.10 : 0))
+                    )
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .onHover { hovering = $0 }
+            .accessibilityLabel(label)
+            .help(label)
         }
-        .buttonStyle(.borderless)
-        .accessibilityLabel(label)
-        .help(label)
     }
 }
 
@@ -127,6 +148,7 @@ struct PlayerToolbar: View {
     @State private var showsOptions = false
     @State private var showsEqualizer = false
     @State private var volumeBeforeMute = 1.0
+    @State private var hoveringTransport = false
 
     private var safeDuration: Double { duration.isFinite ? max(duration, 0) : 0 }
     private var safeTime: Double { currentTime.isFinite ? max(currentTime, 0) : 0 }
@@ -154,7 +176,7 @@ struct PlayerToolbar: View {
                 HStack(spacing: 0) {
                     HStack(spacing: 4) {
                         control(volume <= 0 ? "speaker.slash.fill" : "speaker.wave.2.fill", "Mute / unmute", action: toggleMute)
-                        control("slider.vertical.3", "Equalizer") { showsEqualizer.toggle() }
+                        control("waveform", "Equalizer") { showsEqualizer.toggle() }
                             .foregroundStyle(equalizer.isEnabled ? PlayerChrome.accent : .white)
                             .popover(isPresented: $showsEqualizer, arrowEdge: .bottom) { equalizerPopover }
                         if wide { volumeSlider }
@@ -191,11 +213,17 @@ struct PlayerToolbar: View {
             control("backward.end.fill", "Previous item") { onPrevious?() }.disabled(onPrevious == nil)
             Button(action: onToggle) {
                 Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 24, weight: .semibold))
-                    .frame(width: 36, height: 28)
+                    .symbolRenderingMode(.monochrome)
+                    .font(.system(size: 26, weight: .semibold))
+                    .frame(width: 38, height: 28)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(.white.opacity(hoveringTransport ? 0.10 : 0))
+                    )
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .onHover { hoveringTransport = $0 }
             .accessibilityLabel(isPlaying ? "Pause" : "Play")
             .help(isPlaying ? "Pause (Space)" : "Play (Space)")
             control("forward.end.fill", "Next item") { onNext?() }.disabled(onNext == nil)
@@ -218,8 +246,12 @@ struct PlayerToolbar: View {
             Text("Playback").font(.headline)
             HStack { Text("Volume"); Spacer(); volumeSlider }
             Divider()
-            Button("Toggle fullscreen", action: onFullscreen)
-            Toggle("Always on top", isOn: Binding(get: { isAlwaysOnTop }, set: { _ in onAlwaysOnTop() }))
+            Button(action: onFullscreen) {
+                Label("Toggle fullscreen", systemImage: "arrow.up.left.and.arrow.down.right")
+            }
+            Toggle(isOn: Binding(get: { isAlwaysOnTop }, set: { _ in onAlwaysOnTop() })) {
+                Label("Always on top", systemImage: isAlwaysOnTop ? "pin.fill" : "pin")
+            }
             if let videoZoom {
                 Divider()
                 HStack {
@@ -243,24 +275,38 @@ struct PlayerToolbar: View {
 
     private var equalizerPopover: some View {
         VStack(alignment: .leading, spacing: PlayerChrome.eqSectionSpacing) {
-            HStack {
-                VStack(alignment: .leading, spacing: PlayerChrome.eqHeaderSpacing) {
+            HStack(spacing: 10) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(PlayerChrome.accent.opacity(equalizer.isEnabled ? 0.20 : 0.10))
+                    Image(systemName: "slider.vertical.3")
+                        .symbolRenderingMode(.monochrome)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(equalizer.isEnabled ? PlayerChrome.accent : .white.opacity(0.55))
+                }
+                .frame(width: 32, height: 32)
+
+                VStack(alignment: .leading, spacing: 1) {
                     Text("Equalizer").font(.headline)
                     Text("7 bands · ±12 dB")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 8)
-                Button { equalizer.isEnabled.toggle() } label: {
-                    Label(equalizer.isEnabled ? "On" : "Off", systemImage: "power")
-                        .font(.caption.weight(.regular))
-                        .foregroundStyle(equalizer.isEnabled ? PlayerChrome.accent : .white.opacity(0.72))
-                        .frame(width: 54, height: 26)
-                        .background(.white.opacity(0.06), in: Capsule())
-                        .overlay(Capsule().strokeBorder(.white.opacity(0.08)))
-                        .contentShape(Capsule())
+                Button("Reset") { equalizer.resetGains() }
+                    .buttonStyle(.borderless)
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(equalizer.gains.contains { $0 != 0 } ? 0.85 : 0.35))
+                    .disabled(!equalizer.gains.contains { $0 != 0 })
+                    .help("Reset every band to 0 dB")
+                    .accessibilityLabel("Reset equalizer bands")
+                Toggle(isOn: Binding(get: { equalizer.isEnabled }, set: { equalizer.isEnabled = $0 })) {
+                    Text("On")
                 }
-                .buttonStyle(.plain)
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .labelsHidden()
+                .tint(PlayerChrome.accent)
                 .accessibilityLabel("Enable equalizer")
                 .accessibilityValue(equalizer.isEnabled ? "On" : "Off")
                 .help("Enable equalizer")
@@ -269,9 +315,7 @@ struct PlayerToolbar: View {
             HStack(alignment: .top, spacing: PlayerChrome.eqColumnSpacing) {
                 ForEach(PlayerEqualizer.frequencies.indices, id: \.self) { index in
                     VStack(spacing: PlayerChrome.eqBandSpacing) {
-                        Text(String(format: "%+.0f dB", equalizer.gains[index]))
-                            .font(.system(size: PlayerChrome.timeSize, weight: .medium, design: .monospaced))
-                            .foregroundStyle(equalizer.isEnabled ? PlayerChrome.accent : .white.opacity(0.85))
+                        gainLabel(equalizer.gains[index], isEnabled: equalizer.isEnabled)
                             .frame(height: PlayerChrome.eqValueHeight)
                         EqualizerBandSlider(
                             value: Binding(get: { equalizer.gains[index] }, set: { equalizer.setGain($0, at: index) }),
@@ -280,7 +324,8 @@ struct PlayerToolbar: View {
                         )
                         .frame(width: PlayerChrome.eqSliderWidth, height: PlayerChrome.eqSliderHeight)
                         Text(PlayerEqualizer.frequencies[index])
-                            .font(.caption.monospacedDigit())
+                            .font(.system(size: 9.5, weight: .medium).monospacedDigit())
+                            .foregroundStyle(.white.opacity(0.55))
                             .fixedSize(horizontal: true, vertical: false)
                     }
                     .frame(width: PlayerChrome.eqBandWidth)
@@ -288,20 +333,40 @@ struct PlayerToolbar: View {
             }
             .frame(maxWidth: .infinity)
             Divider()
-            Text("Floatplayer only; YouTube may ask for audio capture permission")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            if let error = equalizer.errorMessage {
-                Text(error)
+            VStack(alignment: .leading, spacing: 6) {
+                Label("Floatplayer only; YouTube may ask for audio capture permission",
+                      systemImage: "waveform")
+                    .symbolRenderingMode(.monochrome)
                     .font(.caption)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                if let error = equalizer.errorMessage {
+                    Label(error, systemImage: "exclamationmark.triangle.fill")
+                        .symbolRenderingMode(.monochrome)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: PlayerChrome.smallRadius))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
         .padding(PlayerChrome.eqPadding)
         .frame(width: PlayerChrome.eqPopoverWidth)
         .background(PlayerChrome.panel)
+    }
+
+    private func gainLabel(_ value: Double, isEnabled: Bool) -> some View {
+        let gain = Int(value.rounded())
+        let color: Color = gain == 0
+            ? .white.opacity(0.72)
+            : (isEnabled ? PlayerChrome.accent : .white.opacity(0.58))
+        return Text(gain == 0 ? "0" : String(format: "%+d", gain))
+            .font(.system(size: 11, weight: .semibold).monospacedDigit())
+            .foregroundStyle(color)
+            .accessibilityLabel(gain == 0 ? "0 decibels" : "\(gain) decibels")
     }
 
     private func control(_ symbol: String, _ label: String, action: @escaping () -> Void) -> some View {
@@ -378,7 +443,7 @@ private final class EqualizerBandSliderCell: NSSliderCell {
         fill.fill()
 
         let ticks = NSBezierPath()
-        for tick in 0...PlayerChrome.eqTickCount {
+        for tick in 0...PlayerChrome.eqTickCount where tick != PlayerChrome.eqTickCount / 2 {
             let y = track.minY + track.height * CGFloat(tick) / CGFloat(PlayerChrome.eqTickCount)
             ticks.move(to: NSPoint(x: bounds.midX - PlayerChrome.eqTickOuterOffset, y: y))
             ticks.line(to: NSPoint(x: bounds.midX - PlayerChrome.eqTickInnerOffset, y: y))
@@ -388,6 +453,17 @@ private final class EqualizerBandSliderCell: NSSliderCell {
         ticks.lineWidth = 1
         NSColor.white.withAlphaComponent(isEnabled ? PlayerChrome.eqTickOpacity : PlayerChrome.eqDisabledTickOpacity).setStroke()
         ticks.stroke()
+
+        // A stronger centre tick marks the 0 dB baseline without adding another label row.
+        let baselineY = track.minY + track.height / 2
+        let zeroTick = NSBezierPath()
+        zeroTick.move(to: NSPoint(x: bounds.midX - PlayerChrome.eqTickOuterOffset - 1, y: baselineY))
+        zeroTick.line(to: NSPoint(x: bounds.midX - PlayerChrome.eqTickInnerOffset, y: baselineY))
+        zeroTick.move(to: NSPoint(x: bounds.midX + PlayerChrome.eqTickInnerOffset, y: baselineY))
+        zeroTick.line(to: NSPoint(x: bounds.midX + PlayerChrome.eqTickOuterOffset + 1, y: baselineY))
+        zeroTick.lineWidth = 1.5
+        NSColor.white.withAlphaComponent(isEnabled ? PlayerChrome.eqZeroTickOpacity : PlayerChrome.eqDisabledTickOpacity).setStroke()
+        zeroTick.stroke()
     }
 
     override func drawKnob(_ knobRect: NSRect) {
@@ -397,9 +473,9 @@ private final class EqualizerBandSliderCell: NSSliderCell {
                           width: PlayerChrome.eqKnobWidth,
                           height: PlayerChrome.eqKnobHeight)
         PlayerChrome.eqKnobFill.withAlphaComponent(isEnabled ? 1 : PlayerChrome.eqKnobDisabledOpacity).setFill()
-        NSBezierPath(roundedRect: knob, xRadius: PlayerChrome.smallRadius, yRadius: PlayerChrome.smallRadius).fill()
+        NSBezierPath(roundedRect: knob, xRadius: 3.5, yRadius: 3.5).fill()
         NSColor.white.withAlphaComponent(isEnabled ? PlayerChrome.eqKnobStrokeOpacity : PlayerChrome.eqKnobDisabledStrokeOpacity).setStroke()
-        NSBezierPath(roundedRect: knob, xRadius: PlayerChrome.smallRadius, yRadius: PlayerChrome.smallRadius).stroke()
+        NSBezierPath(roundedRect: knob, xRadius: 3.5, yRadius: 3.5).stroke()
         let grip = NSBezierPath()
         grip.move(to: NSPoint(x: knob.minX + PlayerChrome.eqTickInnerOffset, y: knob.midY))
         grip.line(to: NSPoint(x: knob.maxX - PlayerChrome.eqTickInnerOffset, y: knob.midY))

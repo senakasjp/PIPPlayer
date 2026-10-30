@@ -612,6 +612,12 @@ struct ContentView: View {
         }
         .frame(height: 36)
         .padding(.top, 40)
+        .background(
+            LinearGradient(colors: [.black.opacity(0.52), .black.opacity(0.16), .clear],
+                           startPoint: .top, endPoint: .bottom)
+                .padding(.top, -40)
+                .padding(.bottom, -6)
+        )
         .allowsHitTesting(false)
     }
 

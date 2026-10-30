@@ -50,10 +50,10 @@ control bar in the original reference.
 | Gap between rows | 4pt |
 | Timeline track / scrubber diameter | 3pt / 12pt |
 | Volume block | 88 × 26pt, 3pt corner radius |
-| Utility and previous/next icons | 16pt semibold |
-| Play/pause icon | 24pt semibold |
+| Utility and previous/next icons | 18pt semibold |
+| Play/pause icon | 26pt semibold |
 | Utility button hit area | 28 × 28pt |
-| Play/pause hit area | 36 × 28pt |
+| Play/pause hit area | 38 × 28pt |
 | Transport spacing | 8pt |
 | Timestamps | 11pt medium, monospaced digits |
 

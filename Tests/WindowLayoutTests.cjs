@@ -28,6 +28,7 @@ final class PlayerEqualizer: ObservableObject {
     @Published var gains = Array(repeating: 0.0, count: 7)
     @Published var errorMessage: String?
     func setGain(_ value: Double, at index: Int) { gains[index] = value }
+    func resetGains() { gains = Array(repeating: 0, count: PlayerEqualizer.frequencies.count) }
 }
 ${toolbar}
 struct LayoutFixture: View {

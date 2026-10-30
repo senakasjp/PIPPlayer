@@ -224,6 +224,12 @@ final class PlayerEqualizer: ObservableObject {
         gains = updated
     }
 
+    /// Returns every band to 0 dB, keeping the enabled state as-is.
+    func resetGains() {
+        guard gains.contains(where: { $0 != 0 }) else { return }
+        gains = Array(repeating: 0, count: PlayerEQBands.frequencies.count)
+    }
+
     func updatePlayback(vlcPlayback: MKVPlayback, usesVLC: Bool, isPlaying: Bool, volume: Double) {
         self.vlcPlayback = vlcPlayback
         self.usesVLC = usesVLC

@@ -466,6 +466,8 @@ struct PlaylistView: View {
                 disclosure(row)
             }
             Image(systemName: folder == nil ? "square.stack.fill" : (folder!.isExpanded && !folder!.subfolders.isEmpty ? "folder.fill" : "folder"))
+                .symbolRenderingMode(.monochrome)
+                .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(PlayerChrome.accent)
                 .frame(width: 20)
                 .padding(.trailing, 6)
@@ -486,8 +488,11 @@ struct PlaylistView: View {
                     .accessibilityLabel("Has resume point")
             }
             Text("\(items.count)")
-                .font(.system(size: 11, weight: .regular).monospacedDigit())
-                .foregroundStyle(.white.opacity(0.65))
+                .font(.system(size: 10.5, weight: .medium).monospacedDigit())
+                .foregroundStyle(.white.opacity(0.62))
+                .padding(.horizontal, 6)
+                .frame(minWidth: 22, minHeight: 16)
+                .background(Color.white.opacity(0.07), in: Capsule())
                 .padding(.leading, 6)
         }
         .frame(height: 30)
@@ -538,6 +543,7 @@ struct PlaylistView: View {
             } else {
                 Button { playFolder(folderID) } label: {
                     Label("Play", systemImage: "play.fill")
+                        .symbolRenderingMode(.monochrome)
                         .font(.system(size: 12, weight: .regular))
                         .padding(.horizontal, 14)
                         .frame(height: 32)
@@ -628,6 +634,7 @@ struct PlaylistView: View {
     private func placeholder(_ symbol: String, _ title: String, _ message: String) -> some View {
         VStack(spacing: 8) {
             Image(systemName: symbol)
+                .symbolRenderingMode(.hierarchical)
                 .font(.system(size: 40, weight: .light))
                 .foregroundStyle(.secondary)
                 .padding(.bottom, 8)
@@ -643,8 +650,21 @@ struct PlaylistView: View {
 
     private var footer: some View {
         HStack(spacing: 4) {
-            PlayerChrome.iconButton("play.fill", "Play \(folderTitle(folderID))") { playFolder(folderID) }
-                .disabled((folderID.flatMap { library.node($0)?.children?.items } ?? library.items).isEmpty)
+            Button { playFolder(folderID) } label: {
+                Label("Play", systemImage: "play.fill")
+                        .symbolRenderingMode(.monochrome)
+                    .font(.system(size: 11, weight: .semibold))
+                    .padding(.horizontal, 12)
+                    .frame(height: 28)
+                    .foregroundStyle(PlayerChrome.panel)
+                    .background(PlayerChrome.accent, in: RoundedRectangle(cornerRadius: PlayerChrome.smallRadius))
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled((folderID.flatMap { library.node($0)?.children?.items } ?? library.items).isEmpty)
+            .help("Play \(folderTitle(folderID))")
+            .accessibilityLabel("Play \(folderTitle(folderID))")
+            Divider().frame(height: 18).padding(.horizontal, 6)
             PlayerChrome.iconButton(repeatMode == .one ? "repeat.1" : "repeat", repeatHelp, action: cycleRepeat)
                 .foregroundStyle(repeatMode == .off ? Color.white : PlayerChrome.accent)
             Menu {
@@ -652,7 +672,9 @@ struct PlaylistView: View {
                 Button("Shuffle remaining videos", action: shuffleRemaining)
                     .disabled(remainingSiblings.count < 2)
             } label: {
-                Image(systemName: "shuffle").font(.system(size: PlayerChrome.iconSize, weight: .semibold))
+                Image(systemName: "shuffle")
+                    .symbolRenderingMode(.monochrome)
+                    .font(.system(size: PlayerChrome.iconSize, weight: .semibold))
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
@@ -722,11 +744,11 @@ struct PlaylistView: View {
                 .foregroundStyle(.white.opacity(0.45))
                 .frame(width: 26, alignment: .trailing)
                 .padding(.trailing, 8)
-            thumbnail(node, isCurrent: isCurrent, isResume: isResume)
+            thumbnail(node, info: info, isCurrent: isCurrent, isResume: isResume)
                 .padding(.trailing, 10)
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(displayTitle(node))
-                    .font(.system(size: 13, weight: .regular))
+                    .font(.system(size: 13, weight: isCurrent ? .semibold : .medium))
                     .foregroundStyle(isCurrent ? PlayerChrome.accent : .white)
                     .lineLimit(1)
                     .help(displayTitle(node))
@@ -773,7 +795,9 @@ struct PlaylistView: View {
             .help("Add to folder")
             .accessibilityLabel("Move \(displayTitle(node)) to a folder")
             Menu { contextMenu([node.id]) } label: {
-                Image(systemName: "ellipsis").rotationEffect(.degrees(90)).font(.system(size: 15, weight: .bold))
+                Image(systemName: "ellipsis")
+                    .symbolRenderingMode(.monochrome)
+                    .font(.system(size: 16, weight: .semibold))
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
@@ -828,15 +852,55 @@ struct PlaylistView: View {
         }
     }
 
-    private func thumbnail(_ node: PlaylistNode, isCurrent: Bool, isResume: Bool = false) -> some View {
+    /// 16:9 artwork; clicking it plays. Shows saved progress along the bottom edge.
+    /// Artwork is fetched at the sharpest size the source offers so it stays crisp on Retina.
+    private func thumbnail(_ node: PlaylistNode, info: PlaylistMetadata.Info?, isCurrent: Bool, isResume: Bool = false) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 5, style: .continuous)
+        let progress = self.progress(node, info: info)
+        let showsPlay = isCurrent || isResume || hoveredID == node.id
         return Button { play(node.id) } label: {
-            Image(systemName: isCurrent ? "speaker.wave.2.fill"
-                             : isResume || hoveredID == node.id ? "play.fill"
-                             : placeholderSymbol(node))
-                .font(.system(size: 14, weight: .regular))
-                .foregroundStyle(isCurrent ? PlayerChrome.accent : .white.opacity(0.55))
-                .frame(width: 24, height: 24)
-                .contentShape(Rectangle())
+            ZStack {
+                LinearGradient(
+                    colors: node.isFolder
+                        ? [PlayerChrome.accent.opacity(0.28), PlayerChrome.accent.opacity(0.10)]
+                        : [Color.white.opacity(0.10), Color.white.opacity(0.04)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                if let image = info?.thumbnail {
+                    Image(nsImage: image)
+                        .resizable()
+                        .interpolation(.high)
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: 64, height: 36)
+                } else {
+                    Image(systemName: placeholderSymbol(node))
+                        .symbolRenderingMode(.monochrome)
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundStyle(node.isFolder ? PlayerChrome.accent : .white.opacity(0.75))
+                }
+                if showsPlay {
+                    Color.black.opacity(0.42)
+                    Image(systemName: isCurrent ? "speaker.wave.2.fill" : "play.fill")
+                        .symbolRenderingMode(.monochrome)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(isCurrent ? PlayerChrome.accent : .white)
+                        .shadow(color: .black.opacity(0.45), radius: 2, y: 1)
+                }
+            }
+            .frame(width: 64, height: 36)
+            .clipShape(shape)
+            .overlay(shape.strokeBorder(.white.opacity(0.12)))
+            .overlay(alignment: .bottom) {
+                ZStack(alignment: .leading) {
+                    Color.black.opacity(progress == nil ? 0 : 0.40)
+                    if let progress {
+                        PlayerChrome.accent.frame(width: 64 * min(max(progress, 0), 1), height: 2)
+                    }
+                }
+                .frame(height: 2)
+            }
+            .contentShape(shape)
         }
         .buttonStyle(.plain)
         .disabled(node.isFolder && (node.children ?? []).items.isEmpty)
@@ -1293,7 +1357,7 @@ final class PlaylistMetadata: ObservableObject {
         var result = Info()
         if media.playbackURL.isFileURL {
             let file = media.playbackURL
-            let request = QLThumbnailGenerator.Request(fileAt: file, size: CGSize(width: 144, height: 80),
+            let request = QLThumbnailGenerator.Request(fileAt: file, size: CGSize(width: 160, height: 90),
                                                        scale: 2, representationTypes: .thumbnail)
             result.thumbnail = try? await QLThumbnailGenerator.shared.generateBestRepresentation(for: request).nsImage
             if file.pathExtension.lowercased() == "mp4" { await loadAsset(file, into: &result) }
@@ -1326,10 +1390,23 @@ final class PlaylistMetadata: ObservableObject {
             result.title = json["title"] as? String
             result.author = json["author_name"] as? String
         }
-        if let artwork = StreamingProviderRegistry.shared.thumbnailURL(for: media.mediaID),
-           let (data, _) = try? await URLSession.shared.data(from: artwork) {
-            result.thumbnail = NSImage(data: data)
+        result.thumbnail = await Self.youTubeArtwork(for: media.mediaID)
+    }
+
+    /// YouTube exposes several artwork sizes. Prefer the sharpest real image and
+    /// fall back when `maxresdefault` is missing or only a tiny placeholder.
+    private static func youTubeArtwork(for mediaID: String) async -> NSImage? {
+        guard !mediaID.hasPrefix("youtube-playlist:") else { return nil }
+        for name in ["maxresdefault", "sddefault", "hqdefault"] {
+            guard let url = URL(string: "https://i.ytimg.com/vi/\(mediaID)/\(name).jpg") else { continue }
+            guard let (data, response) = try? await URLSession.shared.data(from: url),
+                  (response as? HTTPURLResponse)?.statusCode == 200,
+                  let image = NSImage(data: data),
+                  image.size.width >= 320 else { continue }
+            image.isTemplate = false
+            return image
         }
+        return nil
     }
 
     static func codecName(_ code: FourCharCode) -> String {
