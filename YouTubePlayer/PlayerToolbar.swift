@@ -16,6 +16,36 @@ enum PlayerChrome {
     static let titleSize: CGFloat = 24
     static let iconSize: CGFloat = 16
     static let timeSize: CGFloat = 11
+    static let eqPopoverWidth: CGFloat = 400
+    static let eqPadding: CGFloat = 16
+    static let contentPadding: CGFloat = 12
+    static let eqSectionSpacing: CGFloat = 12
+    static let eqHeaderSpacing: CGFloat = 2
+    static let eqColumnSpacing: CGFloat = 8
+    static let eqBandSpacing: CGFloat = 7
+    static let eqBandWidth: CGFloat = 44
+    static let eqSliderWidth: CGFloat = 28
+    static let eqSliderHeight: CGFloat = 120
+    static let eqValueSize: CGFloat = 10
+    static let eqValueHeight: CGFloat = 14
+    static let eqTrackOpacity = 0.20
+    static let eqDisabledTrackOpacity = 0.10
+    static let eqAccentOpacity = 0.90
+    static let eqDisabledAccentOpacity = 0.25
+    static let eqTickOpacity = 0.16
+    static let eqDisabledTickOpacity = 0.08
+    static let eqTrackInset: CGFloat = 8
+    static let eqTrackWidth: CGFloat = 3
+    static let eqTrackRadius: CGFloat = 1.5
+    static let eqTickCount = 12
+    static let eqTickInnerOffset: CGFloat = 4
+    static let eqTickOuterOffset: CGFloat = 8
+    static let eqKnobWidth: CGFloat = 24
+    static let eqKnobHeight: CGFloat = 10
+    static let eqKnobFill = NSColor(calibratedWhite: 0.82, alpha: 1)
+    static let eqKnobDisabledOpacity = 0.45
+    static let eqKnobStrokeOpacity = 0.50
+    static let eqKnobDisabledStrokeOpacity = 0.18
 
     /// Borderless 28pt icon control shared by the toolbar and playlist.
     static func iconButton(_ symbol: String, _ label: String, action: @escaping () -> Void) -> some View {
@@ -83,6 +113,7 @@ struct PlayerToolbar: View {
     let duration: Double
     @Binding var volume: Double
     @Binding var isScrubbing: Bool
+    @ObservedObject var equalizer: PlayerEqualizer
     let onToggle: () -> Void
     let onSeek: () -> Void
     var onPrevious: (() -> Void)?
@@ -92,7 +123,9 @@ struct PlayerToolbar: View {
     var onAlwaysOnTop: () -> Void = {}
     var isAlwaysOnTop = false
     var videoZoom: Binding<Double>? = nil
+    var onDeleteFile: (() -> Void)? = nil
     @State private var showsOptions = false
+    @State private var showsEqualizer = false
     @State private var volumeBeforeMute = 1.0
 
     private var safeDuration: Double { duration.isFinite ? max(duration, 0) : 0 }
@@ -119,9 +152,12 @@ struct PlayerToolbar: View {
                     timeLabel(safeDuration)
                 }
                 HStack(spacing: 0) {
-                    Group {
+                    HStack(spacing: 4) {
+                        control(volume <= 0 ? "speaker.slash.fill" : "speaker.wave.2.fill", "Mute / unmute", action: toggleMute)
+                        control("slider.vertical.3", "Equalizer") { showsEqualizer.toggle() }
+                            .foregroundStyle(equalizer.isEnabled ? PlayerChrome.accent : .white)
+                            .popover(isPresented: $showsEqualizer, arrowEdge: .bottom) { equalizerPopover }
                         if wide { volumeSlider }
-                        else { control(volume <= 0 ? "speaker.slash.fill" : "speaker.wave.2.fill", "Mute / unmute", action: toggleMute) }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     transport
@@ -169,13 +205,6 @@ struct PlayerToolbar: View {
     private var volumeSlider: some View {
         PlayerSlider(value: volumeValue, maximum: 1, label: "Volume", isVolume: true)
             .frame(width: 88, height: 26)
-            .overlay(alignment: .leading) {
-                Image(systemName: volume <= 0 ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                    .font(.system(size: PlayerChrome.iconSize))
-                    .padding(.leading, 8)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
-            }
             .help("Adjust volume")
     }
 
@@ -188,6 +217,7 @@ struct PlayerToolbar: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Playback").font(.headline)
             HStack { Text("Volume"); Spacer(); volumeSlider }
+            Divider()
             Button("Toggle fullscreen", action: onFullscreen)
             Toggle("Always on top", isOn: Binding(get: { isAlwaysOnTop }, set: { _ in onAlwaysOnTop() }))
             if let videoZoom {
@@ -202,9 +232,76 @@ struct PlayerToolbar: View {
                 Button("Reset to 100%") { videoZoom.wrappedValue = 1 }
                     .disabled(videoZoom.wrappedValue == 1)
             }
+            if let onDeleteFile {
+                Divider()
+                Button("Stop & Delete File", role: .destructive, action: onDeleteFile)
+            }
         }
         .padding(16)
-        .frame(width: 240)
+        .frame(width: 320)
+    }
+
+    private var equalizerPopover: some View {
+        VStack(alignment: .leading, spacing: PlayerChrome.eqSectionSpacing) {
+            HStack {
+                VStack(alignment: .leading, spacing: PlayerChrome.eqHeaderSpacing) {
+                    Text("Equalizer").font(.headline)
+                    Text("7 bands · ±12 dB")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 8)
+                Button { equalizer.isEnabled.toggle() } label: {
+                    Label(equalizer.isEnabled ? "On" : "Off", systemImage: "power")
+                        .font(.caption.weight(.regular))
+                        .foregroundStyle(equalizer.isEnabled ? PlayerChrome.accent : .white.opacity(0.72))
+                        .frame(width: 54, height: 26)
+                        .background(.white.opacity(0.06), in: Capsule())
+                        .overlay(Capsule().strokeBorder(.white.opacity(0.08)))
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Enable equalizer")
+                .accessibilityValue(equalizer.isEnabled ? "On" : "Off")
+                .help("Enable equalizer")
+            }
+            Divider()
+            HStack(alignment: .top, spacing: PlayerChrome.eqColumnSpacing) {
+                ForEach(PlayerEqualizer.frequencies.indices, id: \.self) { index in
+                    VStack(spacing: PlayerChrome.eqBandSpacing) {
+                        Text(String(format: "%+.0f dB", equalizer.gains[index]))
+                            .font(.system(size: PlayerChrome.timeSize, weight: .medium, design: .monospaced))
+                            .foregroundStyle(equalizer.isEnabled ? PlayerChrome.accent : .white.opacity(0.85))
+                            .frame(height: PlayerChrome.eqValueHeight)
+                        EqualizerBandSlider(
+                            value: Binding(get: { equalizer.gains[index] }, set: { equalizer.setGain($0, at: index) }),
+                            label: "\(PlayerEqualizer.frequencies[index]) gain in decibels",
+                            enabled: equalizer.isEnabled
+                        )
+                        .frame(width: PlayerChrome.eqSliderWidth, height: PlayerChrome.eqSliderHeight)
+                        Text(PlayerEqualizer.frequencies[index])
+                            .font(.caption.monospacedDigit())
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
+                    .frame(width: PlayerChrome.eqBandWidth)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            Divider()
+            Text("Floatplayer only; YouTube may ask for audio capture permission")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let error = equalizer.errorMessage {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(PlayerChrome.eqPadding)
+        .frame(width: PlayerChrome.eqPopoverWidth)
+        .background(PlayerChrome.panel)
     }
 
     private func control(_ symbol: String, _ label: String, action: @escaping () -> Void) -> some View {
@@ -222,6 +319,92 @@ struct PlayerToolbar: View {
         let seconds = Int(min(max(time, 0), 359_999))
         if seconds >= 3600 { return String(format: "%d:%02d:%02d", seconds / 3600, seconds / 60 % 60, seconds % 60) }
         return String(format: "%d:%02d", seconds / 60, seconds % 60)
+    }
+}
+
+private struct EqualizerBandSlider: NSViewRepresentable {
+    @Binding var value: Double
+    let label: String
+    let enabled: Bool
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeNSView(context: Context) -> NSSlider {
+        let slider = NSSlider()
+        slider.cell = EqualizerBandSliderCell()
+        slider.isVertical = true
+        slider.isContinuous = true
+        slider.target = context.coordinator
+        slider.action = #selector(Coordinator.changed(_:))
+        slider.setAccessibilityLabel(label)
+        return slider
+    }
+
+    func updateNSView(_ slider: NSSlider, context: Context) {
+        context.coordinator.parent = self
+        slider.minValue = -12
+        slider.maxValue = 12
+        slider.doubleValue = value
+        slider.isEnabled = enabled
+        slider.isVertical = true
+    }
+
+    final class Coordinator: NSObject {
+        var parent: EqualizerBandSlider
+
+        init(_ parent: EqualizerBandSlider) { self.parent = parent }
+
+        @objc func changed(_ sender: NSSlider) {
+            parent.value = sender.doubleValue
+        }
+    }
+}
+
+private final class EqualizerBandSliderCell: NSSliderCell {
+    override func drawBar(inside rect: NSRect, flipped: Bool) {
+        guard let bounds = controlView?.bounds else { return }
+        let track = NSRect(x: bounds.midX - PlayerChrome.eqTrackWidth / 2,
+                           y: bounds.minY + PlayerChrome.eqTrackInset,
+                           width: PlayerChrome.eqTrackWidth,
+                           height: max(0, bounds.height - PlayerChrome.eqTrackInset * 2))
+        NSColor.white.withAlphaComponent(isEnabled ? PlayerChrome.eqTrackOpacity : PlayerChrome.eqDisabledTrackOpacity).setFill()
+        NSBezierPath(roundedRect: track, xRadius: PlayerChrome.eqTrackRadius, yRadius: PlayerChrome.eqTrackRadius).fill()
+
+        let fraction = maxValue > minValue ? (doubleValue - minValue) / (maxValue - minValue) : 0.5
+        let zeroY = track.minY + track.height / 2
+        let valueY = track.minY + track.height * CGFloat(flipped ? 1 - fraction : fraction)
+        let fill = NSRect(x: track.minX, y: min(zeroY, valueY), width: track.width, height: max(1, abs(valueY - zeroY)))
+        NSColor(PlayerChrome.accent).withAlphaComponent(isEnabled ? PlayerChrome.eqAccentOpacity : PlayerChrome.eqDisabledAccentOpacity).setFill()
+        fill.fill()
+
+        let ticks = NSBezierPath()
+        for tick in 0...PlayerChrome.eqTickCount {
+            let y = track.minY + track.height * CGFloat(tick) / CGFloat(PlayerChrome.eqTickCount)
+            ticks.move(to: NSPoint(x: bounds.midX - PlayerChrome.eqTickOuterOffset, y: y))
+            ticks.line(to: NSPoint(x: bounds.midX - PlayerChrome.eqTickInnerOffset, y: y))
+            ticks.move(to: NSPoint(x: bounds.midX + PlayerChrome.eqTickInnerOffset, y: y))
+            ticks.line(to: NSPoint(x: bounds.midX + PlayerChrome.eqTickOuterOffset, y: y))
+        }
+        ticks.lineWidth = 1
+        NSColor.white.withAlphaComponent(isEnabled ? PlayerChrome.eqTickOpacity : PlayerChrome.eqDisabledTickOpacity).setStroke()
+        ticks.stroke()
+    }
+
+    override func drawKnob(_ knobRect: NSRect) {
+        let bounds = controlView?.bounds ?? knobRect
+        let knob = NSRect(x: bounds.midX - PlayerChrome.eqKnobWidth / 2,
+                          y: knobRect.midY - PlayerChrome.eqKnobHeight / 2,
+                          width: PlayerChrome.eqKnobWidth,
+                          height: PlayerChrome.eqKnobHeight)
+        PlayerChrome.eqKnobFill.withAlphaComponent(isEnabled ? 1 : PlayerChrome.eqKnobDisabledOpacity).setFill()
+        NSBezierPath(roundedRect: knob, xRadius: PlayerChrome.smallRadius, yRadius: PlayerChrome.smallRadius).fill()
+        NSColor.white.withAlphaComponent(isEnabled ? PlayerChrome.eqKnobStrokeOpacity : PlayerChrome.eqKnobDisabledStrokeOpacity).setStroke()
+        NSBezierPath(roundedRect: knob, xRadius: PlayerChrome.smallRadius, yRadius: PlayerChrome.smallRadius).stroke()
+        let grip = NSBezierPath()
+        grip.move(to: NSPoint(x: knob.minX + PlayerChrome.eqTickInnerOffset, y: knob.midY))
+        grip.line(to: NSPoint(x: knob.maxX - PlayerChrome.eqTickInnerOffset, y: knob.midY))
+        NSColor(PlayerChrome.panel).withAlphaComponent(isEnabled ? 1 : PlayerChrome.eqKnobDisabledOpacity).setStroke()
+        grip.stroke()
     }
 }
 

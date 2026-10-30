@@ -27,6 +27,26 @@ struct MediaRegressionTests {
             precondition(registry.providerName(for: media.mediaID) == "MKV")
         }
         precondition(registry.resolve("javascript:movie.mkv") == nil)
+        let youtubeID = "M7lc1UVf-VE"
+        let acceptedYouTubeInputs = [
+            "youtube.com/watch?v=\(youtubeID)",
+            "www.youtube.com/watch?v=\(youtubeID)",
+            "HTTPS://WWW.YOUTUBE.COM/watch?v=\(youtubeID)",
+            "https://m.youtube.com/watch?v=\(youtubeID)",
+            "https://youtube.com/shorts/\(youtubeID)",
+            "https://www.youtube.com/live/\(youtubeID)",
+            "https://www.youtube.com/embed/\(youtubeID)",
+            "https://youtu.be/\(youtubeID)?t=30",
+            "<https://youtu.be/\(youtubeID)>",
+            "Watch this: https://youtu.be/\(youtubeID)"
+        ]
+        for input in acceptedYouTubeInputs {
+            guard let media = registry.resolve(input), media.mediaID == youtubeID else {
+                fatalError("YouTube URL must resolve to \(youtubeID): \(input)")
+            }
+        }
+        precondition(registry.resolve("javascript://youtube.com/watch?v=\(youtubeID)") == nil)
+        precondition(registry.resolve("https://youtube.com/watch") == nil)
         let receiver = DropReceiverView(frame: .zero)
         precondition(receiver.registeredDraggedTypes.contains(.fileURL), "Finder file drops must be registered")
         let board = NSPasteboard.withUniqueName()

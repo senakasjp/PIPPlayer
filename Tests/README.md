@@ -12,7 +12,7 @@ swiftc -parse-as-library -module-cache-path "$work/modules" YouTubePlayer/Stream
 rm -rf "$work"
 ```
 
-The Swift checks cover MP4/WebM resolution, file/text pasteboards, unsupported drops, asynchronous item-provider delivery, and playlist URL/index preservation. The JavaScript checks cover queued YouTube playlist loading, cueing, navigation, and final-item completion.
+The Swift checks cover MP4/WebM resolution, file/text pasteboards, unsupported drops, asynchronous item-provider delivery, playlist URL/index preservation, and the accepted YouTube link shapes (bare host, short share link, Shorts, live, embed, quoted or pasted-in-text links). The JavaScript checks cover queued YouTube playlist loading, cueing, navigation, and final-item completion.
 
 ## Release build
 

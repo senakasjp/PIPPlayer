@@ -72,35 +72,40 @@ struct YouTubeProvider: StreamingProvider {
     }
 
     private func supports(_ url: URL) -> Bool {
+        guard ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
+              url.user == nil, url.password == nil else { return false }
         let host = url.host?.lowercased() ?? ""
         return ["youtube.com", "youtube-nocookie.com", "youtu.be"].contains {
             host == $0 || host.hasSuffix("." + $0)
         }
     }
 
+    /// Video ID from any common YouTube link shape: watch, share (youtu.be),
+    /// embed, Shorts, live, and the legacy /v/ path.
     private func extractVideoID(from input: String) -> String? {
-        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let url = URL(string: trimmed), supports(url) else { return nil }
+        guard let url = URL(string: input), supports(url) else { return nil }
         let host = url.host?.lowercased() ?? ""
 
-        if host.contains("youtu.be") {
-            let last = url.pathComponents.last
-            if let last, !last.isEmpty, last != "/" { return last }
-            return nil
+        if host == "youtu.be" || host.hasSuffix(".youtu.be") {
+            guard let last = url.pathComponents.dropFirst().first,
+                  !last.isEmpty, last != "/" else { return nil }
+            return last
         }
 
-        if host.contains("youtube.com") || host.contains("youtube-nocookie.com") {
-            // Watch URL: youtube.com/watch?v=VIDEO_ID
-            if let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-               let videoID = components.queryItems?.first(where: { $0.name == "v" })?.value {
-                return videoID
-            }
-            // Embed URL: youtube.com/embed/VIDEO_ID or youtube-nocookie.com/embed/VIDEO_ID
-            let parts = url.pathComponents
-            if let embedIndex = parts.firstIndex(of: "embed"), embedIndex + 1 < parts.count {
-                let id = parts[embedIndex + 1]
-                if !id.isEmpty { return id }
-            }
+        // Watch URL: youtube.com/watch?v=VIDEO_ID
+        if let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+           let videoID = components.queryItems?.first(where: { $0.name == "v" })?.value,
+           !videoID.isEmpty {
+            return videoID
+        }
+
+        // Path-based URLs: /embed/ID, /shorts/ID, /live/ID, /v/ID.
+        let parts = url.pathComponents.filter { $0 != "/" }
+        let pathPrefixes = ["embed", "shorts", "live", "v", "e"]
+        for (index, part) in parts.enumerated() where pathPrefixes.contains(part.lowercased()) {
+            guard index + 1 < parts.count else { continue }
+            let id = parts[index + 1]
+            if !id.isEmpty, id != "/" { return id }
         }
 
         return nil
@@ -119,7 +124,7 @@ struct DisneyPlusProvider: StreamingProvider {
             providerID: id,
             providerName: displayName,
             mediaID: mediaID,
-            playbackURL: playbackURL(for: mediaID, startTime: startTime) ?? url,
+            playbackURL: url,
             defaultTitle: "Disney+ Video",
             canResumeWithURLParameter: false
         )
@@ -128,6 +133,7 @@ struct DisneyPlusProvider: StreamingProvider {
     func playbackURL(for mediaID: String, startTime: Int?) -> URL? {
         guard mediaID.hasPrefix("\(id):") else { return nil }
         let path = String(mediaID.dropFirst(id.count + 1))
+        guard path.hasPrefix("/"), !path.hasPrefix("//") else { return nil }
         return URL(string: "https://www.disneyplus.com\(path)")
     }
 
@@ -136,6 +142,8 @@ struct DisneyPlusProvider: StreamingProvider {
     }
 
     private func supports(_ url: URL) -> Bool {
+        guard ["https", "http"].contains(url.scheme?.lowercased() ?? ""),
+              url.user == nil, url.password == nil else { return false }
         let host = url.host?.lowercased() ?? ""
         return host == "disneyplus.com" || host.hasSuffix(".disneyplus.com")
     }
@@ -184,7 +192,48 @@ struct StreamingProviderRegistry {
     }
 
     func resolve(_ input: String, startTime: Int? = nil) -> StreamingMedia? {
-        providers.compactMap { $0.resolve(input, startTime: startTime) }.first
+        // Normalise pasted text once, so providers only ever see a usable URL.
+        let input = Self.normalizedInput(input) ?? input
+        return providers.compactMap { $0.resolve(input, startTime: startTime) }.first
+    }
+
+    /// Turns what people actually paste into a URL: bare hosts without a
+    /// scheme, links wrapped in quotes or brackets, percent-encoded links from
+    /// share sheets, and links embedded in a sentence.
+    static func normalizedInput(_ raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        // A bare host pasted without a scheme: youtube.com/watch?v=…
+        let bareHost = #"^[A-Za-z0-9.-]+\.[A-Za-z]{2,}(:\d+)?([/?#].*)?$"#
+        if trimmed.range(of: bareHost, options: .regularExpression) != nil,
+           let url = URL(string: "https://" + trimmed) {
+            return url.absoluteString
+        }
+
+        // A normal URL, possibly wrapped in quotes or angle brackets by chat or email.
+        let unwrapped = trimmed.trimmingCharacters(in: CharacterSet(charactersIn: "\"'<>()[]{} ,;."))
+        if let url = URL(string: unwrapped), url.scheme != nil, url.host != nil {
+            return url.absoluteString
+        }
+
+        // A percent-encoded share link.
+        if let decoded = trimmed.removingPercentEncoding,
+           decoded != trimmed,
+           let url = URL(string: decoded), url.scheme != nil, url.host != nil {
+            return url.absoluteString
+        }
+
+        // A link embedded in pasted text ("Watch this: https://youtu.be/…").
+        if let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) {
+            let range = NSRange(trimmed.startIndex..<trimmed.endIndex, in: trimmed)
+            if let match = detector.firstMatch(in: trimmed, options: [], range: range),
+               let url = match.url {
+                return url.absoluteString
+            }
+        }
+
+        return nil
     }
 
     func playbackURL(for mediaID: String, startTime: Int? = nil) -> URL? {

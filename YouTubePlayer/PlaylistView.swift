@@ -291,7 +291,7 @@ struct PlaylistView: View {
     private static let line = Color.white.opacity(0.15)
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: PlayerChrome.eqSectionSpacing) {
             header
             addBar
             HSplitView {
@@ -304,14 +304,12 @@ struct PlaylistView: View {
             .clipShape(RoundedRectangle(cornerRadius: PlayerChrome.radius))
             .overlay(RoundedRectangle(cornerRadius: PlayerChrome.radius).strokeBorder(.white.opacity(0.06)))
             footer
-                .padding(.horizontal, PlayerChrome.padding)
-                .frame(height: 38)
-                .playerPanel()
+                .padding(.top, 8)
+                .overlay(alignment: .top) { Color.white.opacity(0.06).frame(height: 1) }
         }
-        .padding(12)
+        .padding(PlayerChrome.contentPadding)
         .frame(minWidth: 820, idealWidth: 1040, minHeight: 460, idealHeight: 640)
-        .background(PlayerChrome.panel.opacity(0.94))
-        .background(.ultraThinMaterial)
+        .playerPanel(radius: PlayerChrome.windowRadius)
         .background(WindowCornerRadius())
         .background(CenterOnScreen())
         .background(PlaylistPanelAnchor(view: panelAnchor))
@@ -319,8 +317,13 @@ struct PlaylistView: View {
         .tint(PlayerChrome.accent)
         .environment(\.colorScheme, .dark)
         .onAppear {
-            // Open where playback is.
-            openFolder = currentItemID.flatMap { library.location(of: $0)?.parent }
+            // Open where playback is, or the last-played folder if nothing is playing right now
+            // (the folder persists even if the item that was playing in it got deleted).
+            if let currentItemID {
+                openFolder = library.location(of: currentItemID)?.parent
+            } else {
+                openFolder = UserDefaults.standard.string(forKey: PlaylistLibrary.scopeKey).flatMap(UUID.init(uuidString:))
+            }
         }
         .confirmationDialog("Move original file to Trash?", isPresented: $showsTrashConfirmation, titleVisibility: .visible) {
             Button("Move Original File to Trash", role: .destructive, action: trashSelectedFile)
@@ -340,15 +343,20 @@ struct PlaylistView: View {
     // MARK: Sections
 
     private var header: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text("Playlist").font(.system(size: 17, weight: .semibold))
-            Text(summary).font(.system(size: 11).monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: PlayerChrome.eqHeaderSpacing) {
+                Text("Playlist").font(.headline.weight(.regular))
+                Text(summary)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
             Spacer()
-            HStack(spacing: 6) {
+            HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                 TextField("Search \(folderTitle(folderID))", text: $query)
                     .textFieldStyle(.plain)
-                    .frame(width: 180)
+                    .frame(minWidth: 140, idealWidth: 200, maxWidth: 240)
                     .accessibilityLabel("Search this folder")
                 if !query.isEmpty {
                     Button { query = "" } label: { Image(systemName: "xmark.circle.fill") }
@@ -357,30 +365,35 @@ struct PlaylistView: View {
                         .accessibilityLabel("Clear search")
                 }
             }
-            .padding(.horizontal, 8)
-            .frame(height: 26)
+            .font(.caption)
+            .padding(.horizontal, 10)
+            .frame(height: 32)
             .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: PlayerChrome.smallRadius))
+            .overlay(RoundedRectangle(cornerRadius: PlayerChrome.smallRadius).strokeBorder(.white.opacity(0.08)))
         }
     }
 
     private var addBar: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 2) {
-                HStack(spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                HStack(spacing: 8) {
                     Image(systemName: "link").foregroundStyle(.secondary)
                     TextField("Paste a YouTube, playlist, MP4, WebM or MKV URL", text: $newURL)
                         .textFieldStyle(.plain)
+                        .font(.caption)
+                        .accessibilityLabel("Video or playlist URL")
                         .onSubmit(addURL)
                     PlayerChrome.iconButton("plus.circle.fill", "Add URL", action: addURL)
                         .foregroundStyle(PlayerChrome.accent)
                         .disabled(newURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
-                .padding(.leading, 8)
-                .frame(height: 28)
+                .padding(.leading, 10)
+                .frame(height: 32)
                 .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: PlayerChrome.smallRadius))
-                .padding(.trailing, 6)
-                PlayerChrome.iconButton("plus.rectangle.on.folder", "Add files or folders…", action: addFiles)
-                PlayerChrome.iconButton("folder.badge.plus", "New folder", action: newFolder)
+                .overlay(RoundedRectangle(cornerRadius: PlayerChrome.smallRadius).strokeBorder(.white.opacity(0.06)))
+                actionChip("Add Files", "plus.rectangle.on.folder", action: addFiles)
+                    .help("Add files or folders…")
+                actionChip("New Folder", "folder.badge.plus", action: newFolder)
                 Menu {
                     Button("Import M3U Playlist…", action: importM3U)
                     Button("Export \(exportScopeName) as M3U…", action: exportM3U)
@@ -388,6 +401,8 @@ struct PlaylistView: View {
                 } label: {
                     Image(systemName: "square.and.arrow.up.on.square")
                         .font(.system(size: PlayerChrome.iconSize, weight: .semibold))
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
                 }
                 .menuIndicator(.hidden)
                 .accessibilityLabel("Import or export")
@@ -396,11 +411,29 @@ struct PlaylistView: View {
                 .fixedSize()
                 .help("Import or export M3U playlists")
             }
+            .font(.caption.weight(.regular))
             if let errorMessage {
                 Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption).foregroundStyle(.red)
+                .font(.caption).foregroundStyle(.red)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: PlayerChrome.smallRadius))
             }
         }
+    }
+
+    private func actionChip(_ title: String, _ symbol: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: symbol)
+                .font(.caption.weight(.regular))
+                .padding(.horizontal, PlayerChrome.inset)
+                .frame(height: 32)
+                .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: PlayerChrome.smallRadius))
+                .overlay(RoundedRectangle(cornerRadius: PlayerChrome.smallRadius).strokeBorder(.white.opacity(0.08)))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
     }
 
     // MARK: Sidebar
@@ -437,7 +470,7 @@ struct PlaylistView: View {
                 .frame(width: 20)
                 .padding(.trailing, 6)
             Text(folder.map(displayTitle) ?? "All Videos")
-                .font(.system(size: 12, weight: folder == nil ? .semibold : .medium))
+                .font(.system(size: 12, weight: .regular))
                 .lineLimit(1)
             Spacer(minLength: 6)
             if isPlayingHere {
@@ -453,11 +486,11 @@ struct PlaylistView: View {
                     .accessibilityLabel("Has resume point")
             }
             Text("\(items.count)")
-                .font(.system(size: 11, weight: .medium).monospacedDigit())
-                .foregroundStyle(.white.opacity(0.5))
+                .font(.system(size: 11, weight: .regular).monospacedDigit())
+                .foregroundStyle(.white.opacity(0.65))
                 .padding(.leading, 6)
         }
-        .frame(height: 24)
+        .frame(height: 30)
         .contentShape(Rectangle())
     }
 
@@ -480,46 +513,35 @@ struct PlaylistView: View {
     private var detail: some View {
         VStack(spacing: 0) {
             folderHeader
-                .padding(.horizontal, 12)
-                .padding(.vertical, 7)
-            Color.white.opacity(0.06).frame(height: 1)
+                .padding(.horizontal, PlayerChrome.contentPadding)
+                .padding(.vertical, PlayerChrome.inset)
+            Color.white.opacity(PlayerChrome.eqDisabledTrackOpacity).frame(height: 1)
             content
         }
-        .background(Color.black.opacity(0.12))
+        .background(Color.white.opacity(0.03))
     }
 
     private var folderHeader: some View {
         let items = folderID.flatMap { library.node($0)?.children?.items } ?? library.items
         let resume = resumeID(in: folderID).flatMap { library.node($0) }
         return HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: PlayerChrome.eqHeaderSpacing) {
                 breadcrumb
                 Text(folderSummary(items))
-                    .font(.system(size: 11).monospacedDigit())
-                    .foregroundStyle(.white.opacity(0.6))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
             }
             Spacer()
-            if let resume {
-                Button { onPlay(resume.id, folderID) } label: {
-                    Label(resumeLabel(resume), systemImage: "play.fill")
-                        .font(.system(size: 12, weight: .semibold))
-                        .lineLimit(1)
-                        .padding(.horizontal, 12)
-                        .frame(height: 24)
-                        .background(PlayerChrome.accent, in: RoundedRectangle(cornerRadius: PlayerChrome.smallRadius))
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.borderless)
-                .frame(maxWidth: 320)
-                .help("Continue where playback stopped in this folder")
+            if resume != nil {
                 PlayerChrome.iconButton("backward.end.alt.fill", "Play from the beginning") { playFolder(folderID, fromStart: true) }
                     .disabled(items.isEmpty)
             } else {
                 Button { playFolder(folderID) } label: {
                     Label("Play", systemImage: "play.fill")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: 12, weight: .regular))
                         .padding(.horizontal, 14)
-                        .frame(height: 24)
+                        .frame(height: 32)
+                        .foregroundStyle(PlayerChrome.panel)
                         .background(PlayerChrome.accent, in: RoundedRectangle(cornerRadius: PlayerChrome.smallRadius))
                         .contentShape(Rectangle())
                 }
@@ -549,17 +571,12 @@ struct PlaylistView: View {
     private func crumb(_ title: String, id: UUID?, isLast: Bool) -> some View {
         Button { openFolder = id; query = "" } label: {
             Text(title)
-                .font(.system(size: isLast ? 14 : 12, weight: isLast ? .semibold : .medium))
+                .font(isLast ? .headline.weight(.regular) : .caption.weight(.regular))
                 .foregroundStyle(isLast ? .white : .white.opacity(0.6))
                 .lineLimit(1)
         }
         .buttonStyle(.borderless)
         .disabled(isLast)
-    }
-
-    private func resumeLabel(_ item: PlaylistNode) -> String {
-        let at = savedPosition(item).map { " at \(Self.formatDuration($0))" } ?? ""
-        return "Continue “\(displayTitle(item))”\(at)"
     }
 
     private func folderSummary(_ items: [PlaylistNode]) -> String {
@@ -614,9 +631,13 @@ struct PlaylistView: View {
                 .font(.system(size: 40, weight: .light))
                 .foregroundStyle(.secondary)
                 .padding(.bottom, 8)
-            Text(title).font(.headline)
-            Text(message).multilineTextAlignment(.center).foregroundStyle(.secondary)
+            Text(title).font(.headline.weight(.regular))
+            Text(message)
+                .font(.caption)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.secondary)
         }
+        .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
@@ -647,6 +668,12 @@ struct PlaylistView: View {
                 .disabled(!canMove(by: 1))
             PlayerChrome.iconButton("minus", "Remove selection from playlist (⌫)", action: removeSelection)
                 .disabled(selection.isEmpty)
+            if !selection.isEmpty {
+                Text("\(selection.count) selected")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 8)
+            }
             Spacer()
             Button("Clear…") { showsClearConfirmation = true }
                 .disabled(library.isEmpty)
@@ -659,7 +686,8 @@ struct PlaylistView: View {
                 Text("Done")
                     .fontWeight(.semibold)
                     .padding(.horizontal, 14)
-                    .frame(height: 26)
+                    .frame(height: 32)
+                    .foregroundStyle(PlayerChrome.panel)
                     .background(PlayerChrome.accent, in: RoundedRectangle(cornerRadius: PlayerChrome.smallRadius))
                     .contentShape(Rectangle())
             }
@@ -690,27 +718,28 @@ struct PlaylistView: View {
             .accessibilityLabel("Select \(displayTitle(node))")
             .accessibilityValue(isChecked ? "Selected" : "Not selected")
             Text("\(row.number).")
-                .font(.system(size: 11, weight: .medium).monospacedDigit())
+                .font(.system(size: 11, weight: .regular).monospacedDigit())
                 .foregroundStyle(.white.opacity(0.45))
                 .frame(width: 26, alignment: .trailing)
                 .padding(.trailing, 8)
-            thumbnail(node, info: info, isCurrent: isCurrent, isResume: isResume)
+            thumbnail(node, isCurrent: isCurrent, isResume: isResume)
                 .padding(.trailing, 10)
-            VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(displayTitle(node))
-                    .font(.system(size: 13, weight: node.isFolder ? .semibold : .medium))
+                    .font(.system(size: 13, weight: .regular))
                     .foregroundStyle(isCurrent ? PlayerChrome.accent : .white)
                     .lineLimit(1)
+                    .help(displayTitle(node))
                 ((isResume
                     ? Text("Stopped here · ").foregroundColor(PlayerChrome.accent)
                     : Text(""))
-                    + Text(subtitle(node, info: info)).foregroundColor(.white.opacity(0.6)))
+                    + Text(subtitle(node, info: info)).foregroundColor(.white.opacity(0.65)))
                     .font(.system(size: 11))
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.trailing, 12)
+            .padding(.trailing, PlayerChrome.inset)
             if let file = node.fileURL, !FileManager.default.fileExists(atPath: file.path) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(.yellow)
@@ -721,9 +750,10 @@ struct PlaylistView: View {
             if isResume {
                 Button { play(node.id) } label: {
                     Label(savedPosition(node).map { "Resume \(Self.formatDuration($0))" } ?? "Resume", systemImage: "play.fill")
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(.system(size: 11, weight: .regular))
                         .padding(.horizontal, 8)
-                        .frame(height: 20)
+                        .frame(height: 28)
+                        .foregroundStyle(PlayerChrome.panel)
                         .background(PlayerChrome.accent, in: RoundedRectangle(cornerRadius: PlayerChrome.smallRadius))
                         .contentShape(Rectangle())
                 }
@@ -733,17 +763,6 @@ struct PlaylistView: View {
                 .help("Continue from where playback stopped")
                 .accessibilityLabel("Resume \(displayTitle(node))")
             }
-            qualityBadge(info)
-                .frame(width: 32)
-            formatColumn(node, info: info)
-                .frame(width: 136, alignment: .leading)
-            let seconds = duration(node, info: info)
-            Text(seconds.map(Self.formatDuration) ?? "--:--")
-                .font(.system(size: 12, weight: .medium).monospacedDigit())
-                .foregroundStyle(.white.opacity(seconds == nil ? 0.3 : 0.8))
-                .accessibilityLabel(seconds == nil ? "Duration unknown" : "Duration \(seconds.map(Self.formatDuration) ?? "")")
-                .frame(width: 56, alignment: .trailing)
-                .padding(.trailing, 8)
             Menu { moveMenuItems([node.id]) } label: {
                 Image(systemName: "plus.square.on.square").font(.system(size: 13, weight: .regular))
             }
@@ -763,14 +782,14 @@ struct PlaylistView: View {
             .help("More")
             .accessibilityLabel("More actions for \(displayTitle(node))")
         }
-        .frame(height: 44)
+        .frame(height: 52)
         .overlay(alignment: .bottom) { Color.white.opacity(0.06).frame(height: 1) }
         .contentShape(Rectangle())
         .onHover { hoveredID = $0 ? node.id : (hoveredID == node.id ? nil : hoveredID) }
         .task(id: node.url) { if let url = node.url { await metadata.load(url) } }
         .help(node.url ?? displayTitle(node))
         .listRowSeparator(.hidden)
-        .listRowInsets(EdgeInsets(top: 0, leading: 2, bottom: 0, trailing: 6))
+        .listRowInsets(EdgeInsets(top: 0, leading: 4, bottom: 0, trailing: 4))
         .listRowBackground(
             Rectangle().fill(isCurrent ? PlayerChrome.accent.opacity(0.16)
                              : isResume ? PlayerChrome.accent.opacity(0.09)
@@ -809,36 +828,15 @@ struct PlaylistView: View {
         }
     }
 
-    /// 16:9 artwork; clicking it plays. Shows saved progress along the bottom edge.
-    private func thumbnail(_ node: PlaylistNode, info: PlaylistMetadata.Info?, isCurrent: Bool, isResume: Bool = false) -> some View {
-        let shape = RoundedRectangle(cornerRadius: PlayerChrome.smallRadius)
-        let progress = self.progress(node, info: info)
+    private func thumbnail(_ node: PlaylistNode, isCurrent: Bool, isResume: Bool = false) -> some View {
         return Button { play(node.id) } label: {
-            ZStack {
-                shape.fill(node.isFolder ? PlayerChrome.accent.opacity(0.18) : Color.white.opacity(0.06))
-                if let image = info?.thumbnail {
-                    Image(nsImage: image).resizable().aspectRatio(contentMode: .fill)
-                } else {
-                    Image(systemName: placeholderSymbol(node))
-                        .font(.system(size: 13))
-                        .foregroundStyle(node.isFolder ? PlayerChrome.accent : .white.opacity(0.45))
-                }
-                if isCurrent || isResume || hoveredID == node.id {
-                    Color.black.opacity(0.45)
-                    Image(systemName: isCurrent ? "speaker.wave.2.fill" : "play.fill")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(isCurrent ? PlayerChrome.accent : .white)
-                }
-            }
-            .frame(width: 56, height: 32)
-            .clipShape(shape)
-            .overlay(alignment: .bottomLeading) {
-                if let progress, progress > 0.01 {
-                    PlayerChrome.accent.frame(width: 56 * min(progress, 1), height: 2)
-                }
-            }
-            .clipShape(shape)
-            .overlay(shape.strokeBorder(.white.opacity(0.08)))
+            Image(systemName: isCurrent ? "speaker.wave.2.fill"
+                             : isResume || hoveredID == node.id ? "play.fill"
+                             : placeholderSymbol(node))
+                .font(.system(size: 14, weight: .regular))
+                .foregroundStyle(isCurrent ? PlayerChrome.accent : .white.opacity(0.55))
+                .frame(width: 24, height: 24)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(node.isFolder && (node.children ?? []).items.isEmpty)
@@ -851,50 +849,6 @@ struct PlaylistView: View {
         if node.media?.mediaID.hasPrefix("youtube-playlist:") == true { return "list.and.film" }
         if node.media?.providerID == "youtube" { return "play.rectangle.fill" }
         return node.fileURL == nil ? "link" : "film"
-    }
-
-    @ViewBuilder private func qualityBadge(_ info: PlaylistMetadata.Info?) -> some View {
-        if let label = info?.qualityLabel {
-            Text(label)
-                .font(.system(size: 10, weight: .heavy))
-                .foregroundStyle(PlayerChrome.panel)
-                .padding(.horizontal, 4)
-                .frame(height: 16)
-                .background(PlayerChrome.accent.opacity(0.9), in: RoundedRectangle(cornerRadius: PlayerChrome.smallRadius))
-                .accessibilityLabel(label == "HD" ? "High definition" : label)
-        }
-    }
-
-    private func formatColumn(_ node: PlaylistNode, info: PlaylistMetadata.Info?) -> some View {
-        HStack(spacing: 8) {
-            if let format = format(for: node) {
-                Text(format)
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.85))
-                    .padding(.horizontal, 6)
-                    .frame(height: 16)
-                    .overlay(RoundedRectangle(cornerRadius: PlayerChrome.smallRadius).strokeBorder(.white.opacity(0.5)))
-                    .fixedSize()
-            }
-            if let specs = info?.specs {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(specs, id: \.self) { Text($0) }
-                }
-                .font(.system(size: 9, weight: .semibold).monospacedDigit())
-                .foregroundStyle(.white.opacity(0.75))
-                .lineLimit(1)
-            }
-        }
-    }
-
-    private func format(for node: PlaylistNode) -> String? {
-        if node.isFolder { return nil }
-        guard let media = node.media else { return "UNSUPPORTED" }
-        if let file = node.fileURL ?? URL(string: node.url ?? ""),
-           PlaylistLibrary.mediaExtensions.contains(file.pathExtension.lowercased()) {
-            return file.pathExtension.uppercased()
-        }
-        return media.mediaID.hasPrefix("youtube-playlist:") ? "PLAYLIST" : media.providerName.uppercased()
     }
 
     private func displayTitle(_ node: PlaylistNode) -> String {
@@ -1279,10 +1233,10 @@ struct PlaylistView: View {
     private func trashSelectedFile() {
         guard let file = fileToTrash else { return }
         fileToTrash = nil
+        onFileTrashed(file)
         do {
             try Self.trashOriginalFile(at: file)
             library.removeItems { $0.fileURL?.standardizedFileURL == file.standardizedFileURL }
-            onFileTrashed(file)
             errorMessage = nil
         } catch {
             errorMessage = "Could not move \(file.lastPathComponent) to Trash: \(error.localizedDescription)"

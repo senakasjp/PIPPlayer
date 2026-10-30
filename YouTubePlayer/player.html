@@ -19,12 +19,11 @@
     re-host anything. The native app drives playback solely through the documented
     IFrame API methods exposed below, and reports state back over `playerBridge`.
 
-    The JS bridge is kept inline here. The page is loaded via
-    loadHTMLString(baseURL: https://www.youtube.com) so the IFrame API's postMessage
-    channel works in WKWebView. The 'origin' playerVar is NOT set: supplying
-    'https://www.youtube.com' while the page IS at that origin triggers YouTube's
-    self-embedding guard (error 152) for some videos. Omitting it lets the IFrame
-    API fall back to same-document postMessage, which works correctly.
+    The JS bridge is kept inline here. The page is loaded with a neutral https
+    baseURL supplied by the app so the IFrame API's postMessage channel works in
+    WKWebView. The 'origin' playerVar is NOT set: supplying an origin that differs
+    from the document triggers YouTube's embed checks for some videos. Omitting it
+    lets the IFrame API fall back to same-document postMessage, which works.
   -->
   <div id="player"></div>
   <script>

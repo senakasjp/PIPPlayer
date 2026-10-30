@@ -1,0 +1,12 @@
+.DS_Store
+DerivedDataBuild/
+build/
+xcuserdata/
+*.xcuserstate
+.claude/
+.omo/
+.mcp.json
+opencode.json
+tui.json
+IMPORT.sh
+IMPORT-CLAUDE.sh

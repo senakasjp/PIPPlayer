@@ -21,6 +21,14 @@ try {
   const file = path.join(directory, 'main.swift');
   fs.writeFileSync(file, `import SwiftUI
 import AppKit
+import Combine
+final class PlayerEqualizer: ObservableObject {
+    static let frequencies = ["63 Hz", "250 Hz", "500 Hz", "1.5 kHz", "3 kHz", "5 kHz", "8 kHz"]
+    @Published var isEnabled = false
+    @Published var gains = Array(repeating: 0.0, count: 7)
+    @Published var errorMessage: String?
+    func setGain(_ value: Double, at index: Int) { gains[index] = value }
+}
 ${toolbar}
 struct LayoutFixture: View {
     let statusMessage: String
@@ -33,6 +41,7 @@ ${topBar}
     var playerControlBar: some View {
         PlayerToolbar(isPlaying: false, currentTime: .constant(12), duration: 60,
                       volume: .constant(1), isScrubbing: .constant(false),
+                      equalizer: PlayerEqualizer(),
                       onToggle: {}, onSeek: {}, onPlaylist: {})
             .padding(.horizontal, PlayerChrome.inset)
             .padding(.bottom, PlayerChrome.inset)

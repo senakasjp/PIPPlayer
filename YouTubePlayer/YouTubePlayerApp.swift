@@ -83,6 +83,7 @@ final class AppSettings: ObservableObject {
         static let watchHistoryVideos = "settings.watchHistoryVideos"
         static let deletedRecentVideoIDs = "settings.deletedRecentVideoIDs"
         static let deletedWatchHistoryVideoIDs = "settings.deletedWatchHistoryVideoIDs"
+        static let resendAPIKey = "settings.resendAPIKey"
     }
 
     private var deletedRecentVideoIDs: Set<String> = []
@@ -146,6 +147,13 @@ final class AppSettings: ObservableObject {
         }
     }
 
+    @Published var resendAPIKey: String = "" {
+        didSet {
+            guard oldValue != resendAPIKey else { return }
+            defaults.set(resendAPIKey, forKey: Keys.resendAPIKey)
+        }
+    }
+
     private init() {
         loadPersistedValues()
     }
@@ -183,6 +191,7 @@ final class AppSettings: ObservableObject {
         }
         deletedRecentVideoIDs = Set(defaults.stringArray(forKey: Keys.deletedRecentVideoIDs) ?? [])
         deletedWatchHistoryVideoIDs = Set(defaults.stringArray(forKey: Keys.deletedWatchHistoryVideoIDs) ?? [])
+        resendAPIKey = defaults.string(forKey: Keys.resendAPIKey) ?? ""
     }
 
     func recordRecentVideo(videoID: String, title: String?, position: Double, sourceURL: String? = nil) {
@@ -424,56 +433,53 @@ struct WatchHistoryView: View {
     @Environment(\.openWindow) private var openWindow
     @State private var expandedNotes: Set<String> = []
 
+    private var youtubeHistoryVideos: [RecentVideoItem] {
+        settings.watchHistoryVideos.filter { video in
+            if let sourceURL = video.sourceURL {
+                guard let media = StreamingProviderRegistry.shared.resolve(sourceURL) else { return false }
+                return media.providerID == "youtube" && !media.mediaID.hasPrefix("youtube-playlist:")
+            }
+            return video.videoID.range(of: "^[A-Za-z0-9_-]{11}$", options: .regularExpression) != nil
+        }
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if settings.watchHistoryVideos.isEmpty {
-                Text("No watch history yet")
-                    .foregroundColor(.secondary)
-                    .padding(16)
-                Spacer()
+        VStack(alignment: .leading, spacing: PlayerChrome.eqSectionSpacing) {
+            VStack(alignment: .leading, spacing: PlayerChrome.eqHeaderSpacing) {
+                Text("Watch History").font(.headline.weight(.regular))
+                Text("\(youtubeHistoryVideos.count) videos")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            if youtubeHistoryVideos.isEmpty {
+                Text("No YouTube watch history yet")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.black.opacity(0.18))
+                    .clipShape(RoundedRectangle(cornerRadius: PlayerChrome.radius))
+                    .overlay(RoundedRectangle(cornerRadius: PlayerChrome.radius).strokeBorder(.white.opacity(0.06)))
             } else {
                 List {
-                    ForEach(settings.watchHistoryVideos) { video in
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack(spacing: 10) {
+                    ForEach(youtubeHistoryVideos) { video in
+                        VStack(alignment: .leading, spacing: PlayerChrome.inset) {
+                            HStack(spacing: PlayerChrome.inset) {
                 Button {
                     openVideo(video)
                 } label: {
-                    HStack(spacing: 10) {
-                        AsyncImage(url: StreamingProviderRegistry.shared.thumbnailURL(for: video.videoID)) { image in
-                            image
-                                .resizable()
-                                .scaledToFill()
-                                        } placeholder: {
-                                            Rectangle().fill(Color.gray.opacity(0.25))
-                                        }
-                                        .frame(width: 96, height: 54)
-                                        .clipShape(RoundedRectangle(cornerRadius: 4))
-
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            Text(video.title)
-                                                .foregroundColor(.accentColor)
-                                                .lineLimit(2)
-                                            Text("Resume at \(AppSettings.formatPlaybackTime(video.lastPosition))")
-                                                .font(.caption)
-                                                .foregroundColor(.secondary)
-                                        }
-                                        Spacer(minLength: 0)
-                                    }
-                                    .contentShape(Rectangle())
+                    VStack(alignment: .leading, spacing: PlayerChrome.eqHeaderSpacing) {
+                            Text(video.title)
+                                .foregroundStyle(.white)
+                                .lineLimit(2)
+                            Text("Resume at \(AppSettings.formatPlaybackTime(video.lastPosition))")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
                                 }
                                 .buttonStyle(.plain)
                                 .help("Open \(video.title)")
-
-                                Button {
-                                    settings.setThumbsDown(videoID: video.videoID, isThumbsDown: !video.isThumbsDown)
-                                } label: {
-                                    Image(systemName: video.isThumbsDown ? "hand.thumbsdown.fill" : "hand.thumbsdown")
-                                        .foregroundColor(video.isThumbsDown ? .red : .secondary)
-                                }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
-                                .help(video.isThumbsDown ? "Remove thumbs down" : "Mark as thumbs down")
 
                                 Button {
                                     toggleNotes(for: video.videoID)
@@ -482,13 +488,17 @@ struct WatchHistoryView: View {
                                         Text(expandedNotes.contains(video.videoID) ? "Collapse" : "Notes")
                                         if hasNotes(videoID: video.videoID) {
                                             Circle()
-                                                .fill(Color.red)
+                                                .fill(PlayerChrome.accent)
                                                 .frame(width: 6, height: 6)
                                         }
                                     }
+                                    .font(.caption)
+                                    .padding(.horizontal, PlayerChrome.inset)
+                                    .frame(height: 28)
+                                    .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: PlayerChrome.smallRadius))
+                                    .overlay(RoundedRectangle(cornerRadius: PlayerChrome.smallRadius).strokeBorder(.white.opacity(0.08)))
                                 }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
+                                .buttonStyle(.borderless)
 
                                 StarRatingView(rating: video.watchLaterStars) { rating in
                                     settings.setWatchLaterStars(videoID: video.videoID, stars: rating)
@@ -498,9 +508,10 @@ struct WatchHistoryView: View {
                                     removeHistoryVideo(videoID: video.videoID)
                                 } label: {
                                     Image(systemName: "trash")
+                                        .frame(width: 28, height: 28)
+                                        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: PlayerChrome.smallRadius))
                                 }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
+                                .buttonStyle(.borderless)
                                 .help("Remove from watch history")
                             }
 
@@ -508,15 +519,31 @@ struct WatchHistoryView: View {
                                 TextEditor(text: noteBinding(for: video.videoID))
                                     .frame(minHeight: 70, maxHeight: 110)
                                     .font(.system(size: 12))
+                                    .scrollContentBackground(.hidden)
+                                    .padding(PlayerChrome.inset)
+                                    .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: PlayerChrome.smallRadius))
                             }
                         }
-                        .padding(.vertical, 4)
+                        .padding(.horizontal, PlayerChrome.inset)
+                        .padding(.vertical, PlayerChrome.inset)
+                        .overlay(alignment: .bottom) { Color.white.opacity(0.06).frame(height: 1) }
+                        .listRowInsets(EdgeInsets())
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
                     }
                 }
-                .listStyle(.inset)
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .background(Color.black.opacity(0.18))
+                .clipShape(RoundedRectangle(cornerRadius: PlayerChrome.radius))
+                .overlay(RoundedRectangle(cornerRadius: PlayerChrome.radius).strokeBorder(.white.opacity(0.06)))
             }
         }
+        .padding(PlayerChrome.contentPadding)
         .frame(minWidth: 620, minHeight: 520)
+        .playerPanel(radius: PlayerChrome.windowRadius)
+        .environment(\.colorScheme, .dark)
+        .tint(PlayerChrome.accent)
     }
 
     private func openVideo(_ video: RecentVideoItem) {
@@ -575,6 +602,146 @@ struct StarRatingView: View {
     }
 }
 
+enum FeedbackMailer {
+    private static var localCopyURL: URL? {
+        guard let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return nil }
+        let folder = dir.appendingPathComponent("YouTubePlayer", isDirectory: true)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return folder.appendingPathComponent("feedback.log")
+    }
+
+    static func saveLocalCopy(subject: String, body: String) {
+        guard let url = localCopyURL else { return }
+        let entry = "\(ISO8601DateFormatter().string(from: Date())) — \(subject.isEmpty ? "(no subject)" : subject)\n\(body)\n---\n"
+        if let handle = try? FileHandle(forWritingTo: url) {
+            handle.seekToEndOfFile()
+            handle.write(entry.data(using: .utf8) ?? Data())
+            try? handle.close()
+        } else {
+            try? entry.write(to: url, atomically: true, encoding: .utf8)
+        }
+    }
+
+    static func send(apiKey: String, subject: String, body: String, completion: @escaping (Result<Void, Error>) -> Void) {
+        var request = URLRequest(url: URL(string: "https://api.resend.com/emails")!)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: [
+            "from": "Floatplayer Feedback <onboarding@resend.dev>",
+            "to": ["senakahks@gmail.com"],
+            "subject": subject.isEmpty ? "Floatplayer Feedback" : subject,
+            "text": body
+        ])
+
+        URLSession.shared.dataTask(with: request) { _, response, error in
+            DispatchQueue.main.async {
+                if let error {
+                    completion(.failure(error))
+                    return
+                }
+                let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+                if (200...299).contains(status) {
+                    completion(.success(()))
+                } else {
+                    completion(.failure(NSError(domain: "FeedbackMailer", code: status, userInfo: [NSLocalizedDescriptionKey: "Resend returned status \(status)"])))
+                }
+            }
+        }.resume()
+    }
+}
+
+enum FeedbackKind: String, CaseIterable, Identifiable {
+    case survey = "Survey"
+    case written = "Written Message"
+    var id: String { rawValue }
+}
+
+struct FeedbackView: View {
+    @EnvironmentObject private var settings: AppSettings
+    @State private var kind: FeedbackKind = .written
+    @State private var subject = ""
+    @State private var message = ""
+    @State private var rating = 0
+    @State private var isSending = false
+    @State private var statusMessage: String?
+
+    private var canSend: Bool {
+        guard !settings.resendAPIKey.isEmpty, !isSending else { return false }
+        switch kind {
+        case .survey: return rating > 0
+        case .written: return !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
+    var body: some View {
+        Form {
+            Section("Resend API Key") {
+                SecureField("re_xxxxxxxx", text: $settings.resendAPIKey)
+            }
+            Section("Feedback") {
+                Picker("Type", selection: $kind) {
+                    ForEach(FeedbackKind.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented)
+
+                switch kind {
+                case .survey:
+                    StarRatingView(rating: rating) { rating = $0 }
+                    TextEditor(text: $message)
+                        .frame(minHeight: 100)
+                case .written:
+                    TextField("Subject", text: $subject)
+                    TextEditor(text: $message)
+                        .frame(minHeight: 160)
+                }
+            }
+            if let statusMessage {
+                Text(statusMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Button(isSending ? "Sending…" : "Send Feedback") {
+                send()
+            }
+            .disabled(!canSend)
+            .keyboardShortcut(.return, modifiers: .command)
+        }
+        .padding()
+        .frame(width: 420)
+    }
+
+    private func send() {
+        isSending = true
+        statusMessage = nil
+
+        let emailSubject: String
+        let emailBody: String
+        switch kind {
+        case .survey:
+            emailSubject = "Survey (\(rating)/5 stars)"
+            emailBody = "Rating: \(rating)/5\n\n\(message)"
+        case .written:
+            emailSubject = subject
+            emailBody = message
+        }
+
+        FeedbackMailer.saveLocalCopy(subject: emailSubject, body: emailBody)
+        FeedbackMailer.send(apiKey: settings.resendAPIKey, subject: emailSubject, body: emailBody) { result in
+            isSending = false
+            switch result {
+            case .success:
+                statusMessage = "Feedback sent. Thank you!"
+                subject = ""
+                message = ""
+                rating = 0
+            case .failure(let error):
+                statusMessage = "Failed to send: \(error.localizedDescription)"
+            }
+        }
+    }
+}
+
 struct PlayerCommands: Commands {
     @ObservedObject var settings: AppSettings
     @Environment(\.openWindow) private var openWindow
@@ -625,6 +792,9 @@ struct WindowCommandBridge: View {
             .onReceive(NotificationCenter.default.publisher(for: .openWatchHistory)) { _ in
                 openWindow(id: "watch-history")
             }
+            .onReceive(NotificationCenter.default.publisher(for: .openFeedback)) { _ in
+                openWindow(id: "feedback")
+            }
     }
 }
 
@@ -634,7 +804,7 @@ struct YouTubePlayerApp: App {
     @StateObject private var settings = AppSettings.shared
 
     var body: some Scene {
-        Window("YouTube Player", id: "main-player") {
+        Window("Floatplayer", id: "main-player") {
             ContentView()
                 .environmentObject(settings)
                 .background(WindowCommandBridge())
@@ -648,6 +818,11 @@ struct YouTubePlayerApp: App {
             WatchHistoryView()
                 .environmentObject(settings)
                 .background(WindowCommandBridge())
+        }
+
+        Window("Send Feedback", id: "feedback") {
+            FeedbackView()
+                .environmentObject(settings)
         }
     }
 }
@@ -669,7 +844,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
 
         if let button = statusItem?.button {
-            let icon = NSImage(systemSymbolName: "play.rectangle.fill", accessibilityDescription: "YouTube Player")
+            let icon = NSImage(systemSymbolName: "play.rectangle.fill", accessibilityDescription: "Floatplayer")
             icon?.size = NSSize(width: 14, height: 14)
             button.image = icon
             button.imageScaling = .scaleProportionallyDown
@@ -730,6 +905,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statisticsItem = statistics
         rebuildStatisticsMenu()
 
+        let feedbackItem = NSMenuItem(title: "Send Feedback…", action: #selector(openFeedback), keyEquivalent: "")
+        feedbackItem.image = menuIcon("envelope")
+        menu.addItem(feedbackItem)
+
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
 
@@ -743,6 +922,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func openWatchHistory() {
         NSApp.activate(ignoringOtherApps: true)
         NotificationCenter.default.post(name: .openWatchHistory, object: nil)
+    }
+
+    @objc func openFeedback() {
+        NSApp.activate(ignoringOtherApps: true)
+        NotificationCenter.default.post(name: .openFeedback, object: nil)
     }
 
     @objc func toggleHoverTransparency(_ sender: NSMenuItem) {
@@ -901,6 +1085,7 @@ extension Notification.Name {
     static let openPlaylist = Notification.Name("openPlaylist")
     static let openURL = Notification.Name("openURL")
     static let openWatchHistory = Notification.Name("openWatchHistory")
+    static let openFeedback = Notification.Name("openFeedback")
     static let toggleOpacity = Notification.Name("toggleOpacity")
     static let setAlwaysOnTop = Notification.Name("setAlwaysOnTop")
     static let setEightyTransparency = Notification.Name("setEightyTransparency")

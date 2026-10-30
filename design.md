@@ -104,20 +104,21 @@ as it moves or resizes, including on monitors with negative screen coordinates.
 
 ## Playlist
 
-Use the player's theme: the slate panel at 94% over ultra-thin material, the
-coral accent, white text, a 24pt semibold heading and 24pt outer padding. The
-transport footer is a floating `playerPanel()` bar with the toolbar's 28pt
-`PlayerChrome.iconButton` controls and a coral Done button. Inner fields, buttons, badges and thumbnails use the 3pt
-`PlayerChrome.smallRadius`; avoid capsules and large rounding. The URL and search
-fields are plain fields on white at 6%. The list sits in a recessed well (black
-at 18%, white 6% border) and draws the playlist as a tree: 22pt indentation per
-level with white-at-15% connector lines (├ └ │), chevrons for folders, and
-rounded highlights on rows.
+Use the EQ popover as the visual reference: `PlayerChrome.panel` over
+ultra-thin material, coral accent, white primary text, and secondary captions.
+The Playlist heading and breadcrumb use the EQ's native headline style; counts
+and summaries use its caption treatment. Keep 12pt outer padding and 12pt
+section spacing. Inputs and compact text actions use a 6% white surface, an 8%
+hairline, and `PlayerChrome.smallRadius`; the primary Play and Done actions use
+the coral accent. Use the shared 28pt `PlayerChrome.iconButton` controls and a
+recessed contents well with subtle separators. The tree keeps 22pt indentation,
+white-at-15% connector lines (├ └ │), chevrons for folders, and rounded row
+highlights.
 
-The sheet is compact (12pt outer padding, 17pt title with an inline summary) and
-split into two panes: a folder sidebar (All Videos plus the folder tree with
-connector lines, a playing/resume marker and item counts) and a contents pane
-with a clickable breadcrumb, folder summary, and Play or “Continue … at 12:05”.
+The sheet is split into two panes: a folder sidebar (All Videos plus the folder
+tree with connector lines, a playing/resume marker and item counts) and a
+contents pane with a clickable breadcrumb, folder summary, and Play or
+“Continue … at 12:05”.
 The contents pane lists the open folder's direct children; searching covers the
 whole open folder. New items go into the open folder.
 
@@ -129,16 +130,24 @@ playback stopped; that row has an accent tint, "Stopped here", and a Resume
 button showing the saved time. Folders without a recorded resume point fall back
 to their first partly watched video.
 
-Rows follow a media-library layout, 44pt high with hairline separators: a
-selection checkbox, the tree branch or folder chevron, a position number inside
-the folder, 56×32 artwork (click to play; shows the saved-progress bar and a
-speaker icon while the row is playing), then title and source (channel, parent
-folder or host), an HD/4K badge, an outlined format pill with resolution/codec/fps,
-duration (`--:--` when unknown), an add-to-folder menu and a More menu. Local MP4
-details come from AVFoundation, artwork from QuickLook, YouTube titles/channels
-from oEmbed, and other durations from playback (`mediaDurations`). Row titles use native
+Rows follow a compact media-library layout, 52pt high with hairline separators:
+a selection checkbox, the tree branch or folder chevron, a position number
+inside the folder, 64×36 artwork (click to play; shows the saved-progress bar
+and a speaker icon while the row is playing), then a flexible title and source
+(channel, parent folder or host), an add-to-folder menu and a More menu. Local
+artwork comes from QuickLook; YouTube titles and channels come from oEmbed.
+Keep format and duration out of the row so long names have room to breathe.
+Row titles use native
 body typography with medium weight; metadata uses native caption typography.
 Highlight the currently playing entry with the accent tint and a speaker icon.
+
+## Watch History
+
+Use the Playlist panel treatment: slate material panel, 12pt outer padding,
+native headline and caption summary, and a recessed list well with subtle
+separators. History titles and resume times share Playlist typography; Notes
+and Remove controls use compact white-wash surfaces, while star ratings keep
+their existing priority behavior. Only YouTube video history appears here.
 
 Provide:
 

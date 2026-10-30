@@ -33,6 +33,7 @@ IFrame methods: `loadVideoById`/`cueVideoById`, `playVideo`, `pauseVideo`, `seek
 ## Features
 
 ### Playback
+- **Disney+ pages**: Use **Open URL… (⌘O)** or drop a Disney+ link, then sign in on the Disney+ page. Links also work in the saved queue and history. Shared-link parameters are preserved, and the native toolbar receives playback time and state when the page exposes its video. A Disney+ subscription is required. Protected playback in the embedded WebKit browser is not verified; if Disney+ rejects it, open the same link in a supported browser such as Safari.
 - **Open YouTube URLs**: Paste, drop, or enter a YouTube link to start playback or replace the current video
 - **Last Video Restore**: Remembers the last opened video and restores it on launch
 - **Resume Playback Position**: Stores timeline progress per video permanently and resumes from the saved time however the video is opened (URL, history, queue or launch). Moved local files are matched by file name; videos played to the end keep the end as their last point.

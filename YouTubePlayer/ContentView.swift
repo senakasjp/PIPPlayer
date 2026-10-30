@@ -3,10 +3,12 @@ import WebKit
 struct ContentView: View {
     @State private var showsSourceError = false
     @State private var sourceErrorMessage = ""
+    @State private var showsDeleteFileConfirmation = false
     @State private var failedSourceURL: String?
     @EnvironmentObject var settings: AppSettings
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @StateObject private var mkvPlayback = MKVPlayback()
+    @StateObject private var equalizer = PlayerEqualizer()
     @State private var webView: WKWebView
     private let scriptHandler: YouTubeScriptMessageHandler
     @State private var isDropTargeted = false
@@ -40,6 +42,10 @@ struct ContentView: View {
     // on startup. Content loads when the user drops/pastes a URL.
     @State private var playerPageLoaded = false   // player.html has been loaded into the web view
     @State private var playerReady = false        // YT.Player onReady has fired
+    @State private var isPlayerShellLoading = false
+    @State private var playerShellLoadStarted: Date?
+    @State private var playerShellWatchdog: DispatchWorkItem?
+    @State private var playerShellAttempts = 0
     @State private var pendingYouTubeID: String?  // video queued before the player was ready
     @State private var pendingYouTubeStart: Double = 0
     @State private var pendingYouTubeAutoplay = false
@@ -62,8 +68,8 @@ struct ContentView: View {
     init() {
         scriptHandler = YouTubeScriptMessageHandler()
         let config = WKWebViewConfiguration()
-        // player.html is loaded with baseURL https://www.youtube.com so the IFrame
-        // API postMessage origin check passes (WKWebView requirement). No custom scheme
+        // player.html is loaded with a neutral https baseURL so the IFrame API
+        // postMessage origin check passes (WKWebView requirement). No custom scheme
         // or file:// load is used: both produce null/opaque origins that YouTube's embed
         // server rejects (errors 153/145).
         config.websiteDataStore = .default()
@@ -156,7 +162,7 @@ struct ContentView: View {
                     const titleNode = document.querySelector('ytd-watch-metadata h1 yt-formatted-string');
                     const title = (titleNode && titleNode.textContent ? titleNode.textContent : document.title || '').trim();
                     handler.postMessage({ videoId: videoId, currentTime: video.currentTime || 0, title: title });
-                    if (videoId.startsWith('mp4:') || videoId.startsWith('webm:')) {
+                    if (videoId.startsWith('mp4:') || videoId.startsWith('webm:') || videoId.startsWith('disneyplus:')) {
                         window.webkit.messageHandlers.playerBridge.postMessage({event: 'mediaTime', videoId: videoId,
                             currentTime: video.currentTime || 0, duration: Number.isFinite(video.duration) ? video.duration : 0,
                             state: video.ended ? 0 : (video.paused ? 2 : 1), title: title});
@@ -229,7 +235,9 @@ struct ContentView: View {
     }
 
     // Bars are visible when hovered (or while the scrub slider is active).
-    private var barsVisible: Bool { isHovering || isScrubbing || playerState != 1 }
+    private var barsVisible: Bool {
+        isHovering || isScrubbing || (playerState != 1 && currentVideoID?.hasPrefix("disneyplus:") != true)
+    }
 
     var body: some View {
         ZStack {
@@ -374,10 +382,20 @@ struct ContentView: View {
         } message: {
             Text(sourceErrorMessage)
         }
-        .onChange(of: library) { PlaylistLibrary.save($0) }
+        .confirmationDialog("Stop playback and delete this file?", isPresented: $showsDeleteFileConfirmation, titleVisibility: .visible) {
+            Button("Stop & Delete File", role: .destructive, action: deleteCurrentFile)
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("\(currentFileURL?.lastPathComponent ?? "This file") will be moved from its original folder to the Mac’s Trash and removed from the playlist. You can restore it from Trash.")
+        }
         .onChange(of: playerDuration) { duration in
             if let id = currentVideoID { PlaylistMetadata.recordDuration(duration, for: id) }
         }
+        .onChange(of: playerState) { _ in synchronizeEqualizer() }
+        .onChange(of: currentVideoID) { _ in synchronizeEqualizer() }
+        .onChange(of: isYouTubeActive) { _ in synchronizeEqualizer() }
+        .onChange(of: equalizer.isEnabled) { _ in synchronizeEqualizer() }
+        .onChange(of: library) { PlaylistLibrary.save($0) }
         .onReceive(NotificationCenter.default.publisher(for: .toggleOpacity)) { _ in
             toggleOpacity()
         }
@@ -431,6 +449,7 @@ struct ContentView: View {
             guard let closingWindow = notification.object as? NSWindow, closingWindow == getWindow() else { return }
             flushPlaybackPositionToDefaults()
             persistLastOpenedVideoFallback()
+            equalizer.isEnabled = false
             mkvPlayback.stop()
             pauseAndPersistCurrentPlayback()
             window = nil
@@ -477,6 +496,29 @@ struct ContentView: View {
         }
         // IFrame Player API bridge callbacks.
         scriptHandler.onPlayerReady = { handlePlayerReady() }
+        scriptHandler.isPlayerShellActive = { playerPageLoaded }
+        scriptHandler.onMainFrameNavigationStarted = {
+            // Leaving player.html (back/forward or a link that took over the main
+            // frame) invalidates the shell. Without this the cached "ready" flag
+            // survives and every later URL is sent to a page that no longer has
+            // window.ytLoad, so drops appear to be ignored until relaunch.
+            guard !isPlayerShellLoading else { return }
+            invalidatePlayerShell()
+        }
+        scriptHandler.onWebContentProcessTerminated = {
+            // WebKit can kill the page under memory pressure or after a crash.
+            // Rebuild the shell and resume the current source instead of leaving
+            // a blank, permanently unresponsive player.
+            let mediaID = currentVideoID
+            let source = currentSourceURL
+            let resumeTime = playerCurrentTime
+            invalidatePlayerShell()
+            playerState = -1
+            guard mediaID?.hasPrefix("mkv:") != true,
+                  let source,
+                  let media = StreamingProviderRegistry.shared.resolve(source) else { return }
+            loadMedia(media, startTime: resumeTime, rememberAsLast: false)
+        }
         scriptHandler.onPlayerStateChange = { state, time, duration in
             DispatchQueue.main.async {
                 guard failedSourceURL == nil else { return }
@@ -580,6 +622,7 @@ struct ContentView: View {
             duration: playerDuration,
             volume: Binding(get: { playerVolume / 100 }, set: { playerSetVolume($0 * 100) }),
             isScrubbing: $isScrubbing,
+            equalizer: equalizer,
             onToggle: playerTogglePlayPause,
             onSeek: { playerSeek(to: playerCurrentTime) },
             onPrevious: previousPlaylistAction,
@@ -592,7 +635,8 @@ struct ContentView: View {
                 videoZoom = $0
                 mkvPlayback.surface.zoom = $0
                 evaluatePlayer("window.setNativeVideoZoom && window.setNativeVideoZoom(\($0));")
-            })
+            }),
+            onDeleteFile: currentFileURL != nil ? { showsDeleteFileConfirmation = true } : nil
         )
         .padding(.horizontal, PlayerChrome.inset)
         .padding(.bottom, PlayerChrome.inset)
@@ -612,6 +656,17 @@ struct ContentView: View {
         }
         guard let index = playlistIndex, playlistQueue.indices.contains(index + 1) else { return nil }
         return { playPlaylistItem(index + 1) }
+    }
+
+    private func synchronizeEqualizer() {
+        let usesVLC = currentVideoID?.hasPrefix("mkv:") == true
+        equalizer.updatePlayback(vlcPlayback: mkvPlayback, usesVLC: usesVLC,
+                                 isPlaying: playerState == 1, volume: playerVolume / 100)
+        guard !usesVLC else { return }
+        let sourceVolume = equalizer.isEnabled && equalizer.isRoutingWebAudio ? 1.0 : playerVolume / 100
+        evaluatePlayer(isYouTubeActive
+            ? "window.ytSetVolume(\(Int(sourceVolume * 100)));"
+            : "var v=document.querySelector('video'); if(v) v.volume=\(sourceVolume);")
     }
 
     /// Playable items of the folder being played, in order.
@@ -634,7 +689,7 @@ struct ContentView: View {
             }
         } else {
             DispatchQueue.main.async {
-                statusMessage = "Invalid streaming URL"
+                setStatusMessage("That link is not a supported video URL. Paste a YouTube, Disney+ or MP4/WebM/MKV link.", clearAfter: 8)
             }
         }
     }
@@ -704,6 +759,32 @@ struct ContentView: View {
         loadMedia(media, startTime: 0, rememberAsLast: true)
     }
 
+    private var currentFileURL: URL? {
+        guard let source = currentSourceURL, let url = URL(string: source), url.isFileURL else { return nil }
+        return url
+    }
+
+    private func deleteCurrentFile() {
+        guard let file = currentFileURL else { return }
+        let resumeIndex = playlistIndex
+        handleTrashedFile(file)
+        do {
+            try PlaylistView.trashOriginalFile(at: file)
+            library.removeItems { $0.fileURL?.standardizedFileURL == file.standardizedFileURL }
+        } catch {
+            setStatusMessage("Could not move \(file.lastPathComponent) to Trash: \(error.localizedDescription)")
+            return
+        }
+        guard let resumeIndex else { return }
+        let queue = playlistQueue
+        if queue.indices.contains(resumeIndex) {
+            // The next item has slid into the deleted item's slot.
+            playPlaylistItem(resumeIndex)
+        } else if playlistRepeat == .all, let first = queue.indices.first {
+            playPlaylistItem(first)
+        }
+    }
+
     private func handleTrashedFile(_ file: URL) {
         guard let media = StreamingProviderRegistry.shared.resolve(file.absoluteString) else { return }
         if currentVideoID == media.mediaID {
@@ -715,6 +796,7 @@ struct ContentView: View {
             playerCurrentTime = 0
             playerDuration = 0
             mkvPlayback.stop()
+            invalidatePlayerShell()
             webView.loadHTMLString("", baseURL: nil)
             UserDefaults.standard.removeObject(forKey: lastURLKey)
             setStatusMessage("Original file moved to Trash")
@@ -799,7 +881,8 @@ struct ContentView: View {
             let isRetry = failedSourceURL == sourceURL
             failedSourceURL = nil
             showsSourceError = false
-            if !isRetry, currentVideoID == media.mediaID, currentSourceURL == sourceURL, playerState > 0 {
+            if !isRetry, currentVideoID == media.mediaID, currentSourceURL == sourceURL, playerState > 0,
+               media.providerID != "youtube" || playerReady {
                 currentVideoID = media.mediaID
                 currentSourceURL = sourceURL
                 applyHistoryNotice(historyEntry(for: media.mediaID))
@@ -836,8 +919,10 @@ struct ContentView: View {
                 let encodedSource = (try? JSONEncoder().encode(sourceURL)).flatMap { String(data: $0, encoding: .utf8) } ?? "null"
                 controller.addUserScript(WKUserScript(source: "window.nativeResumeTime = \(resumeTime); window.nativeSourceURL = \(encodedSource);", injectionTime: .atDocumentStart, forMainFrameOnly: true))
                 isYouTubeActive = false
-                playerPageLoaded = false
-                playerReady = false
+                // A new non-YouTube source replaces the player shell: drop any
+                // queued YouTube request so a late "ready" cannot hijack it.
+                pendingYouTubeID = nil
+                invalidatePlayerShell()
                 statusMessage = ""
                 if media.providerID == "mkv" {
                     webView.loadHTMLString("", baseURL: nil)
@@ -885,54 +970,130 @@ struct ContentView: View {
         loadMedia(media, startTime: playbackPositions[media.mediaID] ?? 0, rememberAsLast: true)
     }
 
-    /// Loads player.html with baseURL https://www.youtube.com so YouTube's
-    /// embed server accepts the origin and the IFrame API postMessage channel works.
+    /// Loads player.html with an https baseURL so YouTube's embed server accepts
+    /// the parent origin and the IFrame API postMessage channel works.
     private func loadPlayerPage() {
         guard let url = Bundle.main.url(forResource: "player", withExtension: "html"),
               let html = try? String(contentsOf: url, encoding: .utf8) else {
             statusMessage = "Player page missing"
             return
         }
+        playerShellWatchdog?.cancel()
+        playerShellWatchdog = nil
         playerReady = false
         playerPageLoaded = true
+        isPlayerShellLoading = true
+        playerShellLoadStarted = Date()
         webView.loadHTMLString(html, baseURL: URL(string: "https://example.com"))
+
+        // If YouTube's API never calls back (offline, firewall, script blocked),
+        // retry once and then tell the user instead of silently queueing URLs.
+        let watchdog = DispatchWorkItem {
+            guard !playerReady else { return }
+            isPlayerShellLoading = false
+            playerPageLoaded = false
+            if playerShellAttempts < 1 {
+                playerShellAttempts += 1
+                loadPlayerPage()
+            } else {
+                setStatusMessage("The YouTube player could not start. Check your connection, then paste the URL again.", clearAfter: 8)
+            }
+        }
+        playerShellWatchdog = watchdog
+        DispatchQueue.main.asyncAfter(deadline: .now() + 12, execute: watchdog)
     }
 
     private func ensurePlayerPage() {
-        if !playerPageLoaded {
-            loadPlayerPage()
+        if playerPageLoaded && playerReady { return }
+        // A shell that is still starting gets a few seconds before being rebuilt.
+        if isPlayerShellLoading, let started = playerShellLoadStarted,
+           Date().timeIntervalSince(started) < 8 {
+            return
+        }
+        loadPlayerPage()
+    }
+
+    /// Forgets everything cached about the player shell. Safe to call repeatedly.
+    private func invalidatePlayerShell() {
+        playerShellWatchdog?.cancel()
+        playerShellWatchdog = nil
+        playerPageLoaded = false
+        playerReady = false
+        isPlayerShellLoading = false
+    }
+
+    /// Routes a YouTube video to the IFrame player, queuing it until the shell is
+    /// verified alive. The queued request survives shell reloads and recovery.
+    private func loadYouTube(id: String, start: Double, autoplay: Bool, playlistIndex: Int = 0) {
+        isYouTubeActive = true
+        pendingYouTubeID = id
+        pendingYouTubeStart = start
+        pendingYouTubeAutoplay = autoplay
+        pendingPlaylistIndex = playlistIndex
+        ensurePlayerPage()
+        dispatchPendingYouTubeLoad()
+    }
+
+    /// Sends the queued video only after confirming the document still exposes
+    /// the bridge. This catches a shell that was silently replaced by navigation
+    /// or a WebKit process restart, which the cached ready flag cannot see.
+    private func dispatchPendingYouTubeLoad() {
+        guard pendingYouTubeID != nil else { return }
+        guard playerReady else {
+            ensurePlayerPage()
+            return
+        }
+        webView.evaluateJavaScript("typeof window.ytLoad") { result, error in
+            DispatchQueue.main.async {
+                guard pendingYouTubeID != nil else { return }
+                guard error == nil, (result as? String) == "function" else {
+                    invalidatePlayerShell()
+                    ensurePlayerPage()
+                    return
+                }
+                playerPageLoaded = true
+                flushPendingYouTubeLoad()
+            }
         }
     }
 
-    /// Routes a YouTube video to the IFrame player, queuing it if the player
-    /// isn't ready yet. Never autoplays until the player page is mounted/ready.
-    private func loadYouTube(id: String, start: Double, autoplay: Bool, playlistIndex: Int = 0) {
-        isYouTubeActive = true
-        ensurePlayerPage()
-        if playerReady {
-            evaluatePlayer("window.ytLoad(\(jsString(id)), \(Int(start)), \(autoplay), \(playlistIndex));")
-        } else {
-            pendingYouTubeID = id
-            pendingYouTubeStart = start
-            pendingYouTubeAutoplay = autoplay
-            pendingPlaylistIndex = playlistIndex
+    private func flushPendingYouTubeLoad() {
+        guard let id = pendingYouTubeID, playerReady else { return }
+        let start = pendingYouTubeStart
+        let autoplay = pendingYouTubeAutoplay
+        let index = pendingPlaylistIndex
+        pendingYouTubeID = nil
+        evaluatePlayer("window.ytLoad(\(jsString(id)), \(Int(start)), \(autoplay), \(index));") { _ in
+            // The command failed, so the shell screen is gone: rebuild and retry.
+            if pendingYouTubeID == nil {
+                pendingYouTubeID = id
+                pendingYouTubeStart = start
+                pendingYouTubeAutoplay = autoplay
+                pendingPlaylistIndex = index
+            }
+            invalidatePlayerShell()
+            ensurePlayerPage()
         }
     }
 
     private func handlePlayerReady() {
+        playerShellWatchdog?.cancel()
+        playerShellWatchdog = nil
+        playerShellAttempts = 0
+        isPlayerShellLoading = false
         playerReady = true
-        if let id = pendingYouTubeID {
-            pendingYouTubeID = nil
-            evaluatePlayer("window.ytLoad(\(jsString(id)), \(Int(pendingYouTubeStart)), \(pendingYouTubeAutoplay), \(pendingPlaylistIndex));")
-        }
-        if playerVolume != 100 {
-            evaluatePlayer("window.ytSetVolume(\(Int(playerVolume)));")
+        if isYouTubeActive { dispatchPendingYouTubeLoad() }
+        if playerVolume != 100 || equalizer.isEnabled {
+            evaluatePlayer("window.ytSetVolume(\(equalizer.isEnabled ? 100 : Int(playerVolume)));")
         }
     }
 
-    private func evaluatePlayer(_ script: String) {
+    private func evaluatePlayer(_ script: String, onError: ((Error) -> Void)? = nil) {
         DispatchQueue.main.async {
-            webView.evaluateJavaScript(script)
+            webView.evaluateJavaScript(script) { _, error in
+                guard let error, let onError else { return }
+                DispatchQueue.main.async { onError(error) }
+            }
         }
     }
 
@@ -1005,10 +1166,20 @@ struct ContentView: View {
             return
         }
         if !isYouTubeActive {
-            evaluatePlayer("var v=document.querySelector('video'); if(v) v.volume=\(min(1, max(0, value / 100)));")
+            if equalizer.isEnabled {
+                equalizer.setVolume(value / 100)
+                evaluatePlayer("var v=document.querySelector('video'); if(v) v.volume=1;")
+            } else {
+                evaluatePlayer("var v=document.querySelector('video'); if(v) v.volume=\(min(1, max(0, value / 100)));")
+            }
             return
         }
-        evaluatePlayer("window.ytSetVolume(\(Int(value)));")
+        if equalizer.isEnabled {
+            equalizer.setVolume(value / 100)
+            evaluatePlayer("window.ytSetVolume(100);")
+        } else {
+            evaluatePlayer("window.ytSetVolume(\(Int(value)));")
+        }
     }
 
     private func adjustedResumeStartTime(from startTime: Double) -> Int {
@@ -1162,7 +1333,7 @@ struct ContentView: View {
     }
 
     private func updateHoverStateFromMouseLocation(window: NSWindow) {
-        guard isTransparent || currentVideoID?.hasPrefix("mkv:") == true else { return }
+        guard isTransparent || currentVideoID?.hasPrefix("mkv:") == true || currentVideoID?.hasPrefix("disneyplus:") == true else { return }
         let mouseLocation = NSEvent.mouseLocation
         let contentRectInScreen = window.convertToScreen(window.contentLayoutRect)
         let hoveringNow = contentRectInScreen.contains(mouseLocation)
@@ -1546,6 +1717,10 @@ final class YouTubeScriptMessageHandler: NSObject, WKScriptMessageHandler, WKNav
     private var activeNavigation: WKNavigation?
     var onMediaEnded: ((String?) -> Void)?
     var onPlaylistPosition: ((String, Int) -> Void)?
+    /// True while player.html owns the main frame.
+    var isPlayerShellActive: () -> Bool = { false }
+    var onMainFrameNavigationStarted: (() -> Void)?
+    var onWebContentProcessTerminated: (() -> Void)?
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         switch message.name {
@@ -1628,6 +1803,12 @@ final class YouTubeScriptMessageHandler: NSObject, WKScriptMessageHandler, WKNav
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         activeNavigation = navigation
+        onMainFrameNavigationStarted?()
+    }
+
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        activeNavigation = nil
+        onWebContentProcessTerminated?()
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
@@ -1653,8 +1834,24 @@ final class YouTubeScriptMessageHandler: NSObject, WKScriptMessageHandler, WKNav
     }
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-        if navigationAction.targetFrame == nil, let url = navigationAction.request.url {
-            webView.load(URLRequest(url: url))
+        let protectsShell = isPlayerShellActive()
+        let url = navigationAction.request.url
+        let targetsMainFrame = navigationAction.targetFrame?.isMainFrame != false
+
+        // While player.html owns the page, a link must never replace it: that
+        // would drop the IFrame API document, and every later URL would land on
+        // a page with no bridge. Hand those links to the default browser.
+        if protectsShell, navigationAction.navigationType == .linkActivated, targetsMainFrame, let url {
+            NSWorkspace.shared.open(url)
+            decisionHandler(.cancel)
+            return
+        }
+        if navigationAction.targetFrame == nil, let url {
+            if protectsShell {
+                NSWorkspace.shared.open(url)
+            } else {
+                webView.load(URLRequest(url: url))
+            }
             decisionHandler(.cancel)
             return
         }
@@ -1663,7 +1860,13 @@ final class YouTubeScriptMessageHandler: NSObject, WKScriptMessageHandler, WKNav
 
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
         if let url = navigationAction.request.url {
-            webView.load(URLRequest(url: url))
+            // A new-window link from the player shell would otherwise replace the
+            // shell in the main web view and permanently wedge playback.
+            if isPlayerShellActive() {
+                NSWorkspace.shared.open(url)
+            } else {
+                webView.load(URLRequest(url: url))
+            }
         }
         return nil
     }
