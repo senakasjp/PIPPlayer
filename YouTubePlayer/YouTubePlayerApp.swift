@@ -628,9 +628,9 @@ enum FeedbackMailer {
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try? JSONSerialization.data(withJSONObject: [
-            "from": "Floatplayer Feedback <onboarding@resend.dev>",
+            "from": "Float player Feedback <onboarding@resend.dev>",
             "to": ["senakahks@gmail.com"],
-            "subject": subject.isEmpty ? "Floatplayer Feedback" : subject,
+            "subject": subject.isEmpty ? "Float player Feedback" : subject,
             "text": body
         ])
 
@@ -804,7 +804,7 @@ struct YouTubePlayerApp: App {
     @StateObject private var settings = AppSettings.shared
 
     var body: some Scene {
-        Window("Floatplayer", id: "main-player") {
+        Window("Float player", id: "main-player") {
             ContentView()
                 .environmentObject(settings)
                 .background(WindowCommandBridge())
@@ -844,7 +844,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
 
         if let button = statusItem?.button {
-            let icon = NSImage(systemSymbolName: "play.rectangle.fill", accessibilityDescription: "Floatplayer")
+            let icon = NSImage(systemSymbolName: "play.rectangle.fill", accessibilityDescription: "Float player")
             icon?.size = NSSize(width: 14, height: 14)
             button.image = icon
             button.imageScaling = .scaleProportionallyDown

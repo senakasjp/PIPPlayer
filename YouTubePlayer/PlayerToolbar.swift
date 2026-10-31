@@ -417,7 +417,7 @@ struct PlayerToolbar: View {
             .frame(maxWidth: .infinity)
             Divider()
             VStack(alignment: .leading, spacing: 6) {
-                Label("Floatplayer only; YouTube may ask for audio capture permission",
+                Label("Float player only; YouTube may ask for audio capture permission",
                       systemImage: "waveform")
                     .symbolRenderingMode(.monochrome)
                     .font(.caption)

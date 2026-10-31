@@ -262,8 +262,8 @@ Version/17.0 Safari/605.1.15
 
 1. Build the project using Xcode or the Release command below.
 2. Quit the running player with **⌘Q** and back up the existing app if needed.
-3. Copy the newly built `YouTubePlayer.app` to `/Applications/`.
-4. Launch `/Applications/YouTubePlayer.app`. Building alone does not update an already installed or running copy.
+3. Copy the newly built `Float player.app` to `/Applications/`.
+4. Launch `/Applications/Float player.app`. Building alone does not update an already installed or running copy.
 
 ## Usage
 
@@ -365,8 +365,8 @@ This is a local ad-hoc build. Distribution builds require appropriate signing fo
 both the app and embedded framework. After quitting the installed player:
 
 ```bash
-ditto /tmp/YouTubePlayerBuild/Build/Products/Release/YouTubePlayer.app /Applications/YouTubePlayer.app
-open /Applications/YouTubePlayer.app
+ditto "/tmp/YouTubePlayerBuild/Build/Products/Release/Float player.app" "/Applications/Float player.app"
+open "/Applications/Float player.app"
 ```
 
 If the system `xcodebuild` launcher reports an architecture error on Apple Silicon,

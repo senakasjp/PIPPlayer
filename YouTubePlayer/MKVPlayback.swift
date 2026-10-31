@@ -302,7 +302,7 @@ private final class WebProcessEqualizer {
         let (outputDeviceUID, _) = try Self.defaultOutputDevice()
 
         let description = CATapDescription(__processes: [NSNumber(value: process)], andDeviceUID: outputDeviceUID, withStream: 0)
-        description.name = "Floatplayer Audio EQ"
+        description.name = "Float player Audio EQ"
         description.muteBehavior = .muted
         description.isPrivate = true
 
@@ -315,7 +315,7 @@ private final class WebProcessEqualizer {
         do {
             let tapUID = try Self.tapUID(for: tapID)
             let aggregateDescription: [String: Any] = [
-                kAudioAggregateDeviceNameKey: "Floatplayer EQ",
+                kAudioAggregateDeviceNameKey: "Float player EQ",
                 kAudioAggregateDeviceUIDKey: "com.example.FloatPlayer.eq.\(UUID().uuidString)",
                 kAudioAggregateDeviceIsPrivateKey: true,
                 kAudioAggregateDeviceIsStackedKey: false,
@@ -575,13 +575,13 @@ private enum PlayerEqualizerError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .ambiguousWebAudio:
-            return "Pause audio in other WebKit apps to use Floatplayer’s EQ."
+            return "Pause audio in other WebKit apps to use Float player’s EQ."
         case .audioIOProcUnavailable:
-            return "Floatplayer couldn’t open the system audio route for EQ."
+            return "Float player couldn’t open the system audio route for EQ."
         case .unsupportedAudioFormat:
             return "The selected audio output format is not supported by EQ."
         case .audioStatus(let status):
-            return "Floatplayer couldn’t start audio EQ (Core Audio error \(status))."
+            return "Float player couldn’t start audio EQ (Core Audio error \(status))."
         }
     }
 }
