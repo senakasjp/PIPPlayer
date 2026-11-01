@@ -37,6 +37,24 @@ xcodebuild -project YouTubePlayer.xcodeproj -scheme YouTubePlayer -configuration
 - Inspect playlist empty, populated and invalid-input states. Check keyboard focus and named accessibility controls.
 - Disable Hover Transparency with ⌘T when testing on-window controls; restore the original preference afterward.
 
+## AeroSpace workspace following
+
+`AeroSpaceFollowerTests.swift` checks the parsing helpers that decide which window and workspace the app moves. It must fail rather than guess when the player's window number is missing, otherwise the wrong window (playlist, history or feedback) would be moved.
+
+```sh
+swiftc -parse-as-library Tests/AeroSpaceFollowerTests.swift YouTubePlayer/AeroSpaceWorkspaceFollower.swift -o /tmp/aero-follower-tests
+/tmp/aero-follower-tests
+```
+
+Manual check on a machine running AeroSpace:
+
+1. Launch the app and confirm `pgrep -f "aerospace subscribe"` shows one `focused-workspace-changed` process.
+2. Note the player window and workspace: `aerospace list-windows --monitor all --pid $(pgrep -f "Float player.app/Contents/MacOS") --format "%{window-id} | %{workspace}"`.
+3. Switch with `aerospace workspace 2` and `aerospace workspace 1`. The player must report the focused workspace each time, stay the same window, and remain above the other windows.
+4. Confirm the focused window is still the other app, not the player, so typing focus is not stolen.
+5. Repeat with Playlist open, then close it and switch again. No extra player row may appear.
+6. Turn off Always On Top, then Follow AeroSpace Workspaces. The subscription process must stop and the player must stay on its workspace.
+
 ## Playlist persistence and Browse regression
 
 `PlaylistLibraryTests.swift` checks actual save/load with isolated defaults, legacy

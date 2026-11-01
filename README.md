@@ -76,6 +76,7 @@ Click the play button icon in the menu bar to access:
 - **Open URL...** (⌘O) - Open a supported video or playlist URL
 - **Hover Transparency** (⌘T) - Enable/disable hover transparency mode
 - **Always On Top** (⌘L) - Control whether window floats above others
+- **Follow AeroSpace Workspaces** - Keep the player on screen when an AeroSpace workspace switch would hide it (on by default, needs Always On Top)
 - **80% Transparency** (⌘8) - Set a fixed 80% transparent, still-clickable window
 - **Toggle Opacity** (⌘P) - Dim to 25% opacity (clickable) or restore to 100%
 - **Fill Player Window** (⌘⇧F) - Expand the player area
@@ -209,15 +210,18 @@ Three separate, sometimes-conflicting concerns come up under a tiling WM:
 
 1. **Resizing/tiling at all.** `.canJoinAllSpaces` (used for "follow across Spaces", above) is exactly the collection-behavior flag most tiling WMs read as "this window is floating/sticky — leave it alone." With it set, AeroSpace won't pull the window into its tiling grid. This is a real trade-off, not a bug: drop `.canJoinAllSpaces` if you want AeroSpace to tile/resize it, keep it if you want cross-Space follow. You can't cleanly have AeroSpace-tiling *and* native macOS all-spaces-follow on the same window at once.
 2. **Fighting the 16:9 lock.** If `lockAspectRatio16x9Enabled` is on, `windowWillResize` will correct *any* resize — including one an external WM just requested — back to 16:9. If you want AeroSpace to freely size the window, turn the 16:9 lock off (menu item, or flip the code default — see the warning above about not restoring it from `UserDefaults` if you do).
-3. **Following you across AeroSpace *workspaces* specifically.** This is different from #1's macOS *Spaces*. AeroSpace has no native sticky/all-workspaces window feature at all — see [nikitabobko/AeroSpace#2](https://github.com/nikitabobko/AeroSpace/issues/2), open since 2024, with no built-in flag or config option that fixes it. The only known workaround (used by other AeroSpace users in that thread) is scripting `exec-on-workspace-change` to actively move the window to whatever workspace becomes focused. That's configured in `~/.config/aerospace/aerospace.toml` (outside this repo), not in this app:
+3. **Following you across AeroSpace *workspaces* specifically.** This is different from #1's macOS *Spaces*. AeroSpace has no native sticky/all-workspaces window feature — see [nikitabobko/AeroSpace#2](https://github.com/nikitabobko/AeroSpace/issues/2), open since 2024. AeroSpace implements workspaces by moving the windows of inactive workspaces off screen, so `.statusBar` and `.canJoinAllSpaces` cannot keep the player visible on their own.
 
-    ```toml
-    exec-on-workspace-change = ['/bin/bash', '-c',
-        'WIN=$(aerospace list-windows --monitor all --app-bundle-id com.example.YouTubePlayer --format "%{window-id}" 2>/dev/null); [ -n "$WIN" ] && aerospace move-node-to-workspace --window-id "$WIN" "$AEROSPACE_FOCUSED_WORKSPACE"'
-    ]
-    ```
+    The app therefore follows AeroSpace itself, in `AeroSpaceWorkspaceFollower.swift`:
 
-    Verified working by switching workspaces via `aerospace workspace <name>` and confirming with `aerospace list-windows --monitor all --app-bundle-id com.example.YouTubePlayer --format "%{workspace}"`. Known limitation (from the same upstream thread): this moves the window but doesn't force focus, so it can end up behind whatever's already focused on the workspace you land on — not brought fully to front automatically.
+    - It runs `aerospace subscribe focused-workspace-changed --no-send-initial` and reconciles after each change.
+    - It looks up the player's own monitor, reads that monitor's visible workspace, and moves only the registered player window there with `move-node-to-workspace --window-id <id> --fail-if-noop`.
+    - It never focuses or activates the player, so typing stays with the focused window. The player keeps level `.statusBar`, so it stays above the workspace's tiled windows.
+    - It stops with the app, retries with backoff when AeroSpace restarts, and does nothing when AeroSpace is absent or disabled.
+
+    "Follow AeroSpace Workspaces" is a menu item and is on by default. It only acts while Always On Top is on; turning either one off stops the follower.
+
+    Earlier attempts used an `exec-on-workspace-change` one-liner that matched every window of `com.example.YouTubePlayer`. That could move the playlist, history or feedback window, or push the same window around again, which is why a "new" window appeared after closing one. Matching the exact `NSWindow.windowNumber` (the same value AeroSpace calls `window-id`) avoids that. Keep the old workaround out of `aerospace.toml`; do not run both at once.
 
 ### CSS Customization
 

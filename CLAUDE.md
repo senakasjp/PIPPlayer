@@ -6,6 +6,7 @@ This is a native macOS SwiftUI/AppKit application with WebKit playback, not a Re
 
 - `YouTubePlayer/YouTubePlayerApp.swift`: application, menus, settings and watch history.
 - `YouTubePlayer/ContentView.swift`: playback coordination, window behavior and WebKit messaging.
+- `YouTubePlayer/AeroSpaceWorkspaceFollower.swift`: keeps the player on the visible AeroSpace workspace without moving other windows or stealing focus.
 - `YouTubePlayer/StreamingProvider.swift`: YouTube, Disney+, MP4, WebM and MKV URL resolution.
 - `YouTubePlayer/MKVPlayback.swift`: direct MKV decoding and a native video surface using bundled VLCKit.
 - `YouTubePlayer/WebView.swift`: native web view and asynchronous drag/drop delivery.

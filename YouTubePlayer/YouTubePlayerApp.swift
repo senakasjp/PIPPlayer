@@ -75,6 +75,7 @@ final class AppSettings: ObservableObject {
 
     private enum Keys {
         static let alwaysOnTop = "settings.alwaysOnTopEnabled"
+        static let followAeroSpaceWorkspaces = "settings.followAeroSpaceWorkspacesEnabled"
         static let eightyTransparency = "settings.eightyTransparencyEnabled"
         static let hoverTransparency = "settings.hoverTransparencyEnabled"
         static let fillPlayerWindow = "settings.fillPlayerWindowEnabled"
@@ -112,6 +113,16 @@ final class AppSettings: ObservableObject {
             guard oldValue != alwaysOnTopEnabled else { return }
             defaults.set(alwaysOnTopEnabled, forKey: Keys.alwaysOnTop)
             NotificationCenter.default.post(name: .setAlwaysOnTop, object: nil, userInfo: ["enabled": alwaysOnTopEnabled])
+        }
+    }
+
+    /// AeroSpace hides windows that are not on the focused workspace, so the
+    /// player has to be moved to the visible workspace to stay on screen.
+    @Published var followAeroSpaceWorkspacesEnabled: Bool = true {
+        didSet {
+            guard oldValue != followAeroSpaceWorkspacesEnabled else { return }
+            defaults.set(followAeroSpaceWorkspacesEnabled, forKey: Keys.followAeroSpaceWorkspaces)
+            NotificationCenter.default.post(name: .setFollowAeroSpaceWorkspaces, object: nil, userInfo: ["enabled": followAeroSpaceWorkspacesEnabled])
         }
     }
 
@@ -161,6 +172,9 @@ final class AppSettings: ObservableObject {
     private func loadPersistedValues() {
         if defaults.object(forKey: Keys.alwaysOnTop) != nil {
             alwaysOnTopEnabled = defaults.bool(forKey: Keys.alwaysOnTop)
+        }
+        if defaults.object(forKey: Keys.followAeroSpaceWorkspaces) != nil {
+            followAeroSpaceWorkspacesEnabled = defaults.bool(forKey: Keys.followAeroSpaceWorkspaces)
         }
         if defaults.object(forKey: Keys.eightyTransparency) != nil {
             eightyTransparencyEnabled = defaults.bool(forKey: Keys.eightyTransparency)
@@ -754,6 +768,7 @@ struct PlayerCommands: Commands {
                 .keyboardShortcut("t", modifiers: .command)
             Toggle("Always On Top", isOn: $settings.alwaysOnTopEnabled)
                 .keyboardShortcut("l", modifiers: .command)
+            Toggle("Follow AeroSpace Workspaces", isOn: $settings.followAeroSpaceWorkspacesEnabled)
             Toggle("80% Transparency", isOn: $settings.eightyTransparencyEnabled)
                 .keyboardShortcut("8", modifiers: .command)
             Button("Toggle Opacity") {
@@ -833,6 +848,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var observers: [NSObjectProtocol] = []
     private var thumbnailCache: [String: NSImage] = [:]
     private var alwaysOnTopItem: NSMenuItem?
+    private var followAeroSpaceWorkspacesItem: NSMenuItem?
     private var eightyTransparencyItem: NSMenuItem?
     private var hoverTransparencyItem: NSMenuItem?
     private var lockAspectRatio16x9Item: NSMenuItem?
@@ -852,6 +868,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         setupMenu()
         installObservers()
+        updateAeroSpaceFollower()
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        AeroSpaceWorkspaceFollower.shared.stop()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -880,6 +901,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         alwaysOnTop.state = settings.alwaysOnTopEnabled ? .on : .off
         menu.addItem(alwaysOnTop)
         alwaysOnTopItem = alwaysOnTop
+
+        let followAeroSpace = NSMenuItem(title: "Follow AeroSpace Workspaces", action: #selector(toggleFollowAeroSpaceWorkspaces), keyEquivalent: "")
+        followAeroSpace.state = settings.followAeroSpaceWorkspacesEnabled ? .on : .off
+        menu.addItem(followAeroSpace)
+        followAeroSpaceWorkspacesItem = followAeroSpace
 
         let eightyTransparency = NSMenuItem(title: "80% Transparency", action: #selector(toggleEightyTransparency), keyEquivalent: "8")
         eightyTransparency.state = settings.eightyTransparencyEnabled ? .on : .off
@@ -935,6 +961,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func toggleAlwaysOnTop(_ sender: NSMenuItem) {
         settings.alwaysOnTopEnabled.toggle()
+    }
+
+    @objc func toggleFollowAeroSpaceWorkspaces(_ sender: NSMenuItem) {
+        settings.followAeroSpaceWorkspacesEnabled.toggle()
     }
 
     @objc func toggleEightyTransparency(_ sender: NSMenuItem) {
@@ -1051,6 +1081,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             if let enabled = notification.userInfo?["enabled"] as? Bool {
                 self?.alwaysOnTopItem?.state = enabled ? .on : .off
             }
+            self?.updateAeroSpaceFollower()
+        })
+        observers.append(center.addObserver(forName: .setFollowAeroSpaceWorkspaces, object: nil, queue: .main) { [weak self] notification in
+            if let enabled = notification.userInfo?["enabled"] as? Bool {
+                self?.followAeroSpaceWorkspacesItem?.state = enabled ? .on : .off
+            }
+            self?.updateAeroSpaceFollower()
         })
         observers.append(center.addObserver(forName: .setEightyTransparency, object: nil, queue: .main) { [weak self] notification in
             if let enabled = notification.userInfo?["enabled"] as? Bool {
@@ -1076,6 +1113,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         })
     }
 
+    /// AeroSpace can only keep the player on screen if it is told to move it to
+    /// the visible workspace. The follower is only useful while the player is
+    /// meant to float above everything.
+    private func updateAeroSpaceFollower() {
+        let shouldFollow = settings.alwaysOnTopEnabled && settings.followAeroSpaceWorkspacesEnabled
+        if shouldFollow {
+            AeroSpaceWorkspaceFollower.shared.start()
+            AeroSpaceWorkspaceFollower.shared.reconcileNow()
+        } else {
+            AeroSpaceWorkspaceFollower.shared.stop()
+        }
+    }
+
     deinit {
         observers.forEach { NotificationCenter.default.removeObserver($0) }
     }
@@ -1088,6 +1138,7 @@ extension Notification.Name {
     static let openFeedback = Notification.Name("openFeedback")
     static let toggleOpacity = Notification.Name("toggleOpacity")
     static let setAlwaysOnTop = Notification.Name("setAlwaysOnTop")
+    static let setFollowAeroSpaceWorkspaces = Notification.Name("setFollowAeroSpaceWorkspaces")
     static let setEightyTransparency = Notification.Name("setEightyTransparency")
     static let setHoverTransparency = Notification.Name("setHoverTransparency")
     static let setFillPlayerWindow = Notification.Name("setFillPlayerWindow")

@@ -493,6 +493,7 @@ struct ContentView: View {
             persistLastOpenedVideoFallback()
             hoverMonitorTimer?.invalidate()
             hoverMonitorTimer = nil
+            PlayerWindowRegistry.shared.clear()
         }
 
     }
@@ -1303,6 +1304,8 @@ struct ContentView: View {
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         self.window = window
+        PlayerWindowRegistry.shared.register(window)
+        AeroSpaceWorkspaceFollower.shared.reconcileNow()
     }
 
     private func scheduleWindowSetup(retryCount: Int = 10) {

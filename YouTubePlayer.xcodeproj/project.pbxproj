@@ -12,6 +12,7 @@
         C10000030000000000000001 /* VLCKit-COPYING.txt in Resources */ = {isa = PBXBuildFile; fileRef = C20000020000000000000001 /* VLCKit-COPYING.txt */; };
 
 		B1000011000000000000001 /* MKVPlayback.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000011000000000000001 /* MKVPlayback.swift */; };
+		B1000012000000000000001 /* AeroSpaceWorkspaceFollower.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000012000000000000001 /* AeroSpaceWorkspaceFollower.swift */; };
 		B1000010000000000000001 /* PlayerToolbar.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000010000000000000001 /* PlayerToolbar.swift */; };
 		B1000009000000000000001 /* PlaylistView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000009000000000000001 /* PlaylistView.swift */; };
 		B1000001000000000000001 /* YouTubePlayerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000001000000000000001 /* YouTubePlayerApp.swift */; };
@@ -28,6 +29,7 @@
         C20000020000000000000001 /* VLCKit-COPYING.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = Frameworks/VLCKit-COPYING.txt; sourceTree = SOURCE_ROOT; };
 
 		B2000011000000000000001 /* MKVPlayback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MKVPlayback.swift; sourceTree = "<group>"; };
+		B2000012000000000000001 /* AeroSpaceWorkspaceFollower.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AeroSpaceWorkspaceFollower.swift; sourceTree = "<group>"; };
 		B2000010000000000000001 /* PlayerToolbar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerToolbar.swift; sourceTree = "<group>"; };
 		B2000009000000000000001 /* PlaylistView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistView.swift; sourceTree = "<group>"; };
 		B3000001000000000000001 /* YouTubePlayer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = YouTubePlayer.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -87,6 +89,7 @@
 				B2000004000000000000001 /* URLHelper.swift */,
 				B2000007000000000000001 /* StreamingProvider.swift */,
 				B2000011000000000000001 /* MKVPlayback.swift */,
+				B2000012000000000000001 /* AeroSpaceWorkspaceFollower.swift */,
 				B2000008000000000000001 /* player.html */,
 				B2000005000000000000001 /* Info.plist */,
 			);
@@ -181,6 +184,7 @@
 				B1000004000000000000001 /* URLHelper.swift in Sources */,
 				B1000006000000000000001 /* StreamingProvider.swift in Sources */,
 				B1000011000000000000001 /* MKVPlayback.swift in Sources */,
+				B1000012000000000000001 /* AeroSpaceWorkspaceFollower.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
