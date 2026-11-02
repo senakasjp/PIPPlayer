@@ -62,6 +62,13 @@ player.showsSourceError = false
 player.window.attachedSheet = 1
 player.handleHoverChange(true)
 precondition(!player.window.ignoresMouseEvents)
+
+player.window.attachedSheet = nil
+player.window.ignoresMouseEvents = false
+player.contentOpacity = 1
+player.isTransparent = false
+player.handleHoverChange(true)
+precondition(!player.window.ignoresMouseEvents && player.contentOpacity == 1, "Hover must not hide the player while hover transparency is off")
 print("Hover click-through gesture and focus checks passed")
 `);
   execFileSync('/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swift', ['-sdk', '/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk', '-target', 'arm64-apple-macosx14.0', '-module-cache-path', path.join(directory, 'cache'), file], {stdio: 'inherit'});

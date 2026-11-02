@@ -13,9 +13,9 @@ struct ContentView: View {
     private let scriptHandler: YouTubeScriptMessageHandler
     @State private var isDropTargeted = false
     @State private var statusMessage = "Drop a streaming URL to play"
-    @State private var isTransparent = true
+    @State private var isTransparent = AppSettings.shared.hoverTransparencyEnabled
     @State private var isAlwaysOnTop = true
-    @State private var isEightyTransparency = false
+    @State private var isEightyTransparency = AppSettings.shared.eightyTransparencyEnabled
     @State private var isDimmed = false
     @State private var isHovering = false
     @State private var contentOpacity: Double = 1.0
@@ -463,6 +463,10 @@ struct ContentView: View {
             mkvPlayback.stop()
             pauseAndPersistCurrentPlayback()
             window = nil
+            let isAlreadyTerminating = (NSApp.delegate as? AppDelegate)?.isTerminating ?? false
+            if !isAlreadyTerminating {
+                DispatchQueue.main.async { NSApp.terminate(nil) }
+            }
         }
         .onReceive(mkvPlayback.updates) { snapshot in
             guard snapshot.mediaID == currentVideoID, snapshot.sessionID == mkvPlayback.sessionID else { return }
@@ -1304,8 +1308,27 @@ struct ContentView: View {
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         self.window = window
+        applyCurrentTransparencyState(to: window)
         PlayerWindowRegistry.shared.register(window)
         AeroSpaceWorkspaceFollower.shared.reconcileNow()
+    }
+
+    /// Re-applies the saved opacity mode once the native window exists. The
+    /// settings callback can run before the window is ready, so this keeps the
+    /// visible state in step with the menu instead of leaving stale hover mode.
+    private func applyCurrentTransparencyState(to window: NSWindow) {
+        if isTransparent {
+            startHoverMonitor(for: window)
+            updateHoverStateFromMouseLocation(window: window)
+            applyTransparentSurfaceMode()
+            return
+        }
+        stopHoverMonitor()
+        isHovering = false
+        contentOpacity = isEightyTransparency ? 0.2 : 1.0
+        window.ignoresMouseEvents = false
+        applyTransparentWindowAppearance(window, isFullyTransparent: false)
+        applyTransparentSurfaceMode()
     }
 
     private func scheduleWindowSetup(retryCount: Int = 10) {
@@ -1427,12 +1450,14 @@ struct ContentView: View {
     }
 
     func setEightyTransparency(to enabled: Bool) {
+        isEightyTransparency = enabled
+        isDimmed = false
+        if enabled {
+            isTransparent = false
+            settings.hoverTransparencyEnabled = false
+        }
         DispatchQueue.main.async {
             guard let window = getWindow() else { return }
-            isEightyTransparency = enabled
-            isTransparent = false
-            isDimmed = false
-            settings.hoverTransparencyEnabled = false
 
             let newOpacity: Double = enabled ? 0.2 : 1.0
             contentOpacity = newOpacity
@@ -1446,9 +1471,9 @@ struct ContentView: View {
     }
 
     func setHoverTransparency(to enabled: Bool) {
+        isTransparent = enabled
         DispatchQueue.main.async {
             guard let window = getWindow() else { return }
-            isTransparent = enabled
             if enabled {
                 startHoverMonitor(for: window)
                 updateHoverStateFromMouseLocation(window: window)

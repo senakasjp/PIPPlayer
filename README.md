@@ -62,12 +62,12 @@ IFrame methods: `loadVideoById`/`cueVideoById`, `playVideo`, `pauseVideo`, `seek
 ### Window and Menu Bar Behavior
 - **Menu Bar Control**: Quick access to player features through a persistent status item
 - **Floating Window**: Stays on top of other applications (toggleable), temporarily using normal window level while the playlist or URL dialog is open so the player cannot cover it. Focus changes preserve this suspension; closing the overlays restores the configured level.
-- **Hover Transparency**: Window becomes transparent and click-through on hover
+- **Hover Transparency**: Window becomes transparent and click-through on hover (off by default)
 - **80% Transparency Preset**: One-tap 80% opacity that stays clickable (⌘8)
 - **Opacity Dimmer**: Toggle to 25% opacity while keeping clicks active (⌘P)
 - **Fill Player Window**: Crops the video to cover the whole window (no letterboxing), using the video's *real* aspect ratio fetched from YouTube's oEmbed endpoint — not a hardcoded 16:9 guess, so Shorts (9:16) and other non-standard uploads crop correctly too. On by default.
 - **16:9 Resize Lock**: Locks the window itself to a 16:9 shape while resizing. On by default; enforced pre-paint (no flicker). Independent of Fill Player Window — the window can be any shape and the video still fills correctly.
-- **Close Window Without Quitting**: Closing the player window stops audio and closes the window, but keeps the menu bar app running until you quit explicitly
+- **Close Quits the App**: Closing the player window saves playback state, stops audio and quits the app
 
 ### Controls
 
@@ -305,8 +305,8 @@ Version/17.0 Safari/605.1.15
 
 ### Window Behavior
 - **Always On Top**: Enabled by default, toggle with ⌘L
-- **Player Window Close**: Closing the player window stops playback/audio and closes only that window
-- **Menu Bar Persistence**: The app remains available from the menu bar until Quit is chosen
+- **Player Window Close**: Closing the player window saves playback state, stops playback/audio and quits the app
+- **Menu Bar Persistence**: The menu bar icon stays available while the app is running
 - **Last URL Persistence**: The last played YouTube URL is reloaded on launch
 - **Playback Position Persistence**: The last timeline position for each video is saved and reused
 

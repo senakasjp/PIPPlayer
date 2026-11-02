@@ -134,7 +134,7 @@ final class AppSettings: ObservableObject {
         }
     }
 
-    @Published var hoverTransparencyEnabled: Bool = true {
+    @Published var hoverTransparencyEnabled: Bool = false {
         didSet {
             guard oldValue != hoverTransparencyEnabled else { return }
             defaults.set(hoverTransparencyEnabled, forKey: Keys.hoverTransparency)
@@ -876,7 +876,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        // The main player window quits the app explicitly when its close
+        // button is used. Keep this false so transient helper windows cannot
+        // terminate the app during launch.
         false
+    }
+
+    /// Lets the player window's close handler quit the whole app without
+    /// launching a second termination pass when the user chooses Quit (⌘Q).
+    private(set) var isTerminating = false
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        isTerminating = true
+        return .terminateNow
     }
 
     func setupMenu() {

@@ -17,7 +17,7 @@ The Swift checks cover MP4/WebM resolution, file/text pasteboards, unsupported d
 
 ## Release build
 
-Run all bridge, hover, overlay-window, window-placement and source-error checks with `node --test Tests/*Tests.cjs`.
+Run all bridge, hover, transparency, overlay-window, window-placement and source-error checks with `node --test Tests/*Tests.cjs`.
 The native Swift checks require macOS on Apple Silicon with Xcode installed at
 `/Applications/Xcode.app`. Source error checks cover failures before metadata,
 redirected-source identity, preserved resume positions, canceled or superseded
