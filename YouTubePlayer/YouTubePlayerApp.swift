@@ -846,6 +846,7 @@ struct YouTubePlayerApp: App {
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem?
+    private var licenceWindow: LicenseWindowController?
     private let settings = AppSettings.shared
     private var observers: [NSObjectProtocol] = []
     private var thumbnailCache: [String: NSImage] = [:]
@@ -954,6 +955,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         updatesItem.image = menuIcon("arrow.triangle.2.circlepath")
         menu.addItem(updatesItem)
 
+        let licenceItem = NSMenuItem(title: "Licence Key…", action: #selector(showLicence), keyEquivalent: "")
+        licenceItem.image = menuIcon("key")
+        menu.addItem(licenceItem)
+
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
 
@@ -977,6 +982,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func checkForUpdates() {
         Task { @MainActor in
             UpdateAgent.shared.check(product: "youtube-player-fresh", interactive: true)
+        }
+    }
+
+    @objc func showLicence() {
+        Task { @MainActor in
+            if self.licenceWindow == nil {
+                self.licenceWindow = try? LicenseWindowController(
+                    productName: "Floatplayer",
+                    product: "youtube-player-fresh",
+                    checkoutURL: URL(string: "https://cloudbridgetec.com/product/youtube-player-fresh")
+                )
+            }
+            self.licenceWindow?.show()
         }
     }
 
@@ -1431,5 +1449,481 @@ final class UpdateAgent {
 
     private func sha256(_ data: Data) -> String {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+}
+import Foundation
+import CryptoKit
+import Security
+
+/// Shared CloudBridge product licence client.
+/// It stores the licence key, device ID, and signed entitlement in the Keychain,
+/// verifies the Ed25519 signature locally, and allows seven days of offline grace.
+public enum CloudLicenseState: Equatable {
+    case unlicensed
+    case active(expires: Date?)
+    case grace(expires: Date)
+    case expired
+    case revoked
+    case invalid(String)
+
+    public var permitsWork: Bool {
+        switch self {
+        case .active, .grace: return true
+        default: return false
+        }
+    }
+
+    public var label: String {
+        switch self {
+        case .unlicensed: return "Not activated"
+        case .active(let expires): return expires.map { "Active until \($0.formatted(date: .abbreviated, time: .omitted))" } ?? "Active"
+        case .grace(let expires): return "Grace period until \(expires.formatted(date: .abbreviated, time: .omitted))"
+        case .expired: return "Expired"
+        case .revoked: return "Revoked"
+        case .invalid(let message): return message
+        }
+    }
+}
+
+public struct CloudLicenseEntitlement: Codable {
+    public let id: String
+    public let product: String
+    public let plan: String
+    public let status: String
+    public let userId: String?
+    public let deviceId: String
+    public let issuedAt: Double
+    public let expiresAt: Double?
+    public let features: [String]
+    public let version: Int
+}
+
+public struct CloudSignedEntitlement: Codable {
+    public let payload: String
+    public let signature: String
+}
+
+public enum CloudLicenseError: LocalizedError {
+    case notConfigured
+    case missingKey
+    case network(String)
+    case rejected(String)
+    case invalidSignature
+    case invalidEntitlement(String)
+    case storage(OSStatus)
+
+    public var errorDescription: String? {
+        switch self {
+        case .notConfigured: return "The licensing service is not configured."
+        case .missingKey: return "Enter your licence key first."
+        case .network(let message): return message
+        case .rejected(let message): return message
+        case .invalidSignature: return "This licence could not be verified."
+        case .invalidEntitlement(let message): return message
+        case .storage(let code): return "The Keychain could not save the licence (\(code))."
+        }
+    }
+}
+
+public final class LicenseClient {
+    public static let publicKeyBase64 = "ushihnRdW9AUBX4/QAUT3cRYXsQ2Z96gGtyvzG0Nh6I="
+
+    private let product: String
+    private let service: String
+    private let baseURL = URL(string: "https://cloudbridgetec.com/api/license")!
+    private let publicKey: Curve25519.Signing.PublicKey
+
+    private struct Stored: Codable {
+        let signed: CloudSignedEntitlement
+        let trustedTime: Double
+    }
+
+    public init(product: String) throws {
+        self.product = product
+        self.service = "com.cloudbridgetechnologies.licence.\(product)"
+        guard let data = Data(base64Encoded: Self.publicKeyBase64),
+              let key = try? Curve25519.Signing.PublicKey(rawRepresentation: data) else {
+            throw CloudLicenseError.notConfigured
+        }
+        self.publicKey = key
+    }
+
+    // MARK: - Public state
+
+    public func status(now: Date = Date()) -> CloudLicenseState {
+        guard let stored = loadStored(), let entitlement = try? verify(stored.signed) else {
+            return .unlicensed
+        }
+        if entitlement.status == "revoked" { return .revoked }
+        if now.timeIntervalSince1970 < entitlement.issuedAt - 300 || now.timeIntervalSince1970 < stored.trustedTime - 300 {
+            return .invalid("Connect to verify your licence. The device time has changed.")
+        }
+        guard let expiresAt = entitlement.expiresAt else {
+            return .active(expires: nil)
+        }
+        let expiry = Date(timeIntervalSince1970: expiresAt)
+        if now <= expiry {
+            return entitlement.status == "grace" ? .grace(expires: expiry) : .active(expires: expiry)
+        }
+        let graceEnd = expiry.addingTimeInterval(7 * 24 * 60 * 60)
+        if now <= graceEnd { return .grace(expires: graceEnd) }
+        return .expired
+    }
+
+    public func storedKey() -> String? {
+        guard let data = read(account: "licenseKey") else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    public func currentDeviceId() -> String {
+        if let data = read(account: "deviceId"), let value = String(data: data, encoding: .utf8) {
+            return value
+        }
+        let value = UUID().uuidString
+        try? save(Data(value.utf8), account: "deviceId")
+        return value
+    }
+
+    // MARK: - Network
+
+    public func activate(licenseKey: String) async throws -> CloudLicenseState {
+        let key = licenseKey.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard !key.isEmpty else { throw CloudLicenseError.missingKey }
+        let response = try await post("activate", body: [
+            "licenseKey": key,
+            "deviceId": currentDeviceId(),
+            "product": product,
+            "appVersion": Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
+        ])
+        let signed = try JSONDecoder().decode(CloudSignedEntitlement.self, from: response.data)
+        let entitlement = try verify(signed)
+        guard entitlement.product == product else {
+            throw CloudLicenseError.invalidEntitlement("This licence belongs to another product.")
+        }
+        let trustedTime = serverDate(response.response) ?? Date()
+        try save(Data(key.utf8), account: "licenseKey")
+        try save(JSONEncoder().encode(Stored(signed: signed, trustedTime: trustedTime.timeIntervalSince1970)), account: "entitlement")
+        return status(now: trustedTime)
+    }
+
+    public func refresh() async throws -> CloudLicenseState {
+        guard let key = storedKey() else { throw CloudLicenseError.missingKey }
+        let response = try await post("refresh", body: [
+            "licenseKey": key,
+            "deviceId": currentDeviceId(),
+            "product": product,
+            "appVersion": Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
+        ])
+        let signed = try JSONDecoder().decode(CloudSignedEntitlement.self, from: response.data)
+        let entitlement = try verify(signed)
+        guard entitlement.product == product else {
+            throw CloudLicenseError.invalidEntitlement("This licence belongs to another product.")
+        }
+        let trustedTime = serverDate(response.response) ?? Date()
+        try save(JSONEncoder().encode(Stored(signed: signed, trustedTime: trustedTime.timeIntervalSince1970)), account: "entitlement")
+        return status(now: trustedTime)
+    }
+
+    public func deactivate() async throws {
+        guard let key = storedKey() else { return }
+        _ = try await post("deactivate", body: [
+            "licenseKey": key,
+            "deviceId": currentDeviceId()
+        ])
+        delete(account: "licenseKey")
+        delete(account: "entitlement")
+    }
+
+    public func signedEntitlement() -> CloudSignedEntitlement? {
+        loadStored()?.signed
+    }
+
+    // MARK: - Internals
+
+    private func post(_ action: String, body: [String: String]) async throws -> (data: Data, response: HTTPURLResponse) {
+        var request = URLRequest(url: baseURL.appendingPathComponent(action), timeoutInterval: 20)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(body)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw CloudLicenseError.network("The licensing service did not respond.")
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            let message = (try? JSONDecoder().decode([String: String].self, from: data))?["error"]
+            throw CloudLicenseError.rejected(message ?? "The licence request was rejected.")
+        }
+        return (data, http)
+    }
+
+    private func verify(_ signed: CloudSignedEntitlement) throws -> CloudLicenseEntitlement {
+        guard let payload = Data(base64Encoded: signed.payload),
+              let signature = Data(base64Encoded: signed.signature),
+              publicKey.isValidSignature(signature, for: payload) else {
+            throw CloudLicenseError.invalidSignature
+        }
+        let entitlement = try JSONDecoder().decode(CloudLicenseEntitlement.self, from: payload)
+        guard !entitlement.id.isEmpty, !entitlement.product.isEmpty else {
+            throw CloudLicenseError.invalidEntitlement("The entitlement is incomplete.")
+        }
+        return entitlement
+    }
+
+    private func serverDate(_ response: HTTPURLResponse) -> Date? {
+        guard let raw = response.value(forHTTPHeaderField: "Date") else { return nil }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
+        return formatter.date(from: raw)
+    }
+
+    private func loadStored() -> Stored? {
+        guard let data = read(account: "entitlement") else { return nil }
+        return try? JSONDecoder().decode(Stored.self, from: data)
+    }
+
+    private func read(account: String) -> Data? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        var result: CFTypeRef?
+        let code = SecItemCopyMatching(query as CFDictionary, &result)
+        return code == errSecSuccess ? result as? Data : nil
+    }
+
+    private func save(_ data: Data, account: String) throws {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
+        ]
+        let update = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+        if update == errSecItemNotFound {
+            var item = query
+            item[kSecValueData as String] = data
+            item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+            let code = SecItemAdd(item as CFDictionary, nil)
+            guard code == errSecSuccess else { throw CloudLicenseError.storage(code) }
+        } else if update != errSecSuccess {
+            throw CloudLicenseError.storage(update)
+        }
+    }
+
+    private func delete(account: String) {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
+        ]
+        SecItemDelete(query as CFDictionary)
+    }
+}
+import AppKit
+
+/// Small licence window shared by the CloudBridge apps.
+@MainActor
+public final class LicenseWindowController: NSWindowController {
+    private let productName: String
+    private let client: LicenseClient
+    private let checkoutURL: URL?
+    private let statusLabel = NSTextField(labelWithString: "")
+    private let keyField = NSTextField()
+    private let activateButton = NSButton(title: "Activate", target: nil, action: nil)
+    private let refreshButton = NSButton(title: "Refresh", target: nil, action: nil)
+    private let deactivateButton = NSButton(title: "Deactivate", target: nil, action: nil)
+    private let busy = NSProgressIndicator()
+
+    /// Called after a successful activation, refresh, or deactivation.
+    public var onChange: (() -> Void)?
+
+    public init(productName: String, product: String, checkoutURL: URL? = nil) throws {
+        self.productName = productName
+        self.client = try LicenseClient(product: product)
+        self.checkoutURL = checkoutURL
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 264),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "\(productName) licence"
+        window.isReleasedWhenClosed = false
+        super.init(window: window)
+        buildContent()
+        reload()
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    public func show() {
+        reload()
+        window?.center()
+        window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func buildContent() {
+        guard let content = window?.contentView else { return }
+        let title = NSTextField(labelWithString: "\(productName) licence")
+        title.font = .systemFont(ofSize: 18, weight: .semibold)
+        title.frame = NSRect(x: 24, y: 212, width: 432, height: 24)
+        content.addSubview(title)
+
+        statusLabel.frame = NSRect(x: 24, y: 184, width: 432, height: 20)
+        statusLabel.textColor = .secondaryLabelColor
+        content.addSubview(statusLabel)
+
+        let keyLabel = NSTextField(labelWithString: "Licence key")
+        keyLabel.frame = NSRect(x: 24, y: 148, width: 432, height: 18)
+        keyLabel.textColor = .secondaryLabelColor
+        content.addSubview(keyLabel)
+
+        keyField.frame = NSRect(x: 24, y: 116, width: 432, height: 26)
+        keyField.placeholderString = "CB-XXXX-XXXX-XXXX-XXXX"
+        keyField.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+        content.addSubview(keyField)
+
+        activateButton.frame = NSRect(x: 300, y: 76, width: 156, height: 30)
+        activateButton.bezelStyle = .rounded
+        activateButton.target = self
+        activateButton.action = #selector(activate)
+        content.addSubview(activateButton)
+
+        refreshButton.frame = NSRect(x: 210, y: 76, width: 84, height: 30)
+        refreshButton.bezelStyle = .rounded
+        refreshButton.target = self
+        refreshButton.action = #selector(refresh)
+        content.addSubview(refreshButton)
+
+        deactivateButton.frame = NSRect(x: 116, y: 76, width: 88, height: 30)
+        deactivateButton.bezelStyle = .rounded
+        deactivateButton.target = self
+        deactivateButton.action = #selector(deactivate)
+        content.addSubview(deactivateButton)
+
+        let closeButton = NSButton(title: "Close", target: self, action: #selector(closeWindow))
+        closeButton.frame = NSRect(x: 24, y: 76, width: 84, height: 30)
+        closeButton.bezelStyle = .rounded
+        content.addSubview(closeButton)
+
+        busy.style = .spinning
+        busy.frame = NSRect(x: 24, y: 30, width: 20, height: 20)
+        busy.isHidden = true
+        content.addSubview(busy)
+
+        let help = NSTextField(labelWithString: "One key covers two devices. Access works offline until the expiry date plus seven days.")
+        help.frame = NSRect(x: 24, y: 24, width: 432, height: 32)
+        help.textColor = .tertiaryLabelColor
+        help.font = .systemFont(ofSize: 11)
+        help.maximumNumberOfLines = 2
+        content.addSubview(help)
+
+        if let checkoutURL {
+            let purchase = NSButton(title: "Purchase", target: self, action: #selector(purchase))
+            purchase.frame = NSRect(x: 380, y: 24, width: 76, height: 26)
+            purchase.bezelStyle = .inline
+            purchase.toolTip = checkoutURL.absoluteString
+            content.addSubview(purchase)
+        }
+    }
+
+    private func reload() {
+        let state = client.status()
+        statusLabel.stringValue = state.label
+        if let key = client.storedKey() {
+            keyField.stringValue = key
+        }
+        activateButton.isEnabled = !busy.isHidden
+        refreshButton.isEnabled = state.permitsWork || client.storedKey() != nil
+        deactivateButton.isEnabled = client.storedKey() != nil
+    }
+
+    private func setUpBusy(_ value: Bool, title: String = "") {
+        busy.isHidden = !value
+        if value { busy.startAnimation(nil) } else { busy.stopAnimation(nil) }
+        statusLabel.stringValue = value ? title : client.status().label
+        activateButton.isEnabled = !value
+        refreshButton.isEnabled = !value
+        deactivateButton.isEnabled = !value
+    }
+
+    @objc private func activate() {
+        let key = keyField.stringValue
+        setUpBusy(true, title: "Activating…")
+        Task {
+            do {
+                _ = try await client.activate(licenseKey: key)
+                setUpBusy(false)
+                reload()
+                onChange?()
+            } catch {
+                setUpBusy(false)
+                present(error.localizedDescription)
+            }
+        }
+    }
+
+    @objc private func refresh() {
+        setUpBusy(true, title: "Checking…")
+        Task {
+            do {
+                _ = try await client.refresh()
+                setUpBusy(false)
+                reload()
+                onChange?()
+            } catch {
+                setUpBusy(false)
+                present(error.localizedDescription)
+            }
+        }
+    }
+
+    @objc private func deactivate() {
+        guard let window else { return }
+        let alert = NSAlert()
+        alert.messageText = "Deactivate this device?"
+        alert.informativeText = "The licence stays on your account. You can activate another device after this one is released."
+        alert.addButton(withTitle: "Deactivate")
+        alert.addButton(withTitle: "Cancel")
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn, let self else { return }
+            self.setUpBusy(true, title: "Deactivating…")
+            Task {
+                do {
+                    try await self.client.deactivate()
+                    self.keyField.stringValue = ""
+                    self.setUpBusy(false)
+                    self.reload()
+                    self.onChange?()
+                } catch {
+                    self.setUpBusy(false)
+                    self.present(error.localizedDescription)
+                }
+            }
+        }
+    }
+
+    @objc private func purchase() {
+        guard let checkoutURL else { return }
+        NSWorkspace.shared.open(checkoutURL)
+    }
+
+    @objc private func closeWindow() {
+        window?.close()
+    }
+
+    private func present(_ message: String) {
+        let alert = NSAlert()
+        alert.messageText = "\(productName) licence"
+        alert.informativeText = message
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 }
