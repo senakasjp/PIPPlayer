@@ -1,5 +1,7 @@
 import SwiftUI
 import Combine
+import AppKit
+import CryptoKit
 
 struct RecentVideoItem: Codable, Identifiable, Hashable {
     let videoID: String
@@ -867,6 +869,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         setupMenu()
+        UpdateAgent.shared.start(product: "youtube-player-fresh")
         installObservers()
         updateAeroSpaceFollower()
     }
@@ -947,6 +950,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         feedbackItem.image = menuIcon("envelope")
         menu.addItem(feedbackItem)
 
+        let updatesItem = NSMenuItem(title: "Check for Updates…", action: #selector(checkForUpdates), keyEquivalent: "")
+        updatesItem.image = menuIcon("arrow.triangle.2.circlepath")
+        menu.addItem(updatesItem)
+
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
 
@@ -965,6 +972,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func openFeedback() {
         NSApp.activate(ignoringOtherApps: true)
         NotificationCenter.default.post(name: .openFeedback, object: nil)
+    }
+
+    @objc func checkForUpdates() {
+        Task { @MainActor in
+            UpdateAgent.shared.check(product: "youtube-player-fresh", interactive: true)
+        }
     }
 
     @objc func toggleHoverTransparency(_ sender: NSMenuItem) {
@@ -1158,4 +1171,265 @@ extension Notification.Name {
     static let openRecentVideo = Notification.Name("openRecentVideo")
     static let recentVideosUpdated = Notification.Name("recentVideosUpdated")
     static let watchHistoryUpdated = Notification.Name("watchHistoryUpdated")
+}
+
+/// Small shared update agent. It reads the CloudBridge update manifest,
+/// compares the published version with this bundle, and offers the installer.
+@MainActor
+final class UpdateAgent {
+    static let shared = UpdateAgent()
+
+    private let manifestURL = URL(string: "https://cloudbridgetec.com/updates/manifest.json")!
+    private var timer: Timer?
+    private var initialCheck: DispatchWorkItem?
+    private var progressWindow: NSWindow?
+    private var downloadTask: Task<Void, Never>?
+
+    private struct Manifest: Decodable {
+        let products: [String: Entry]
+    }
+
+    private struct Entry: Decodable {
+        let name: String?
+        let version: String
+        let minimumSystemVersion: String?
+        let releaseNotes: String?
+        let downloads: [String: Download]?
+    }
+
+    private struct Download: Decodable {
+        let url: String
+        let sha256: String?
+        let size: Int64?
+    }
+
+    private enum UpdateError: LocalizedError {
+        case manifest, download, size, checksum, open
+        var errorDescription: String? {
+            switch self {
+            case .manifest: return "The update manifest could not be read."
+            case .download: return "The download did not complete."
+            case .size: return "The download size did not match the manifest."
+            case .checksum: return "The download checksum did not match the manifest."
+            case .open: return "The installer could not be opened."
+            }
+        }
+    }
+
+    func start(product: String) {
+        initialCheck?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            Task { @MainActor in self?.autoCheck(product: product) }
+        }
+        initialCheck = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 15, execute: work)
+
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: 24 * 60 * 60, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.autoCheck(product: product) }
+        }
+    }
+
+    func check(product: String, interactive: Bool) {
+        Task { await runCheck(product: product, interactive: interactive) }
+    }
+
+    private func autoCheck(product: String) {
+        let key = "UpdateAgent.lastCheck.\(product)"
+        if let last = UserDefaults.standard.object(forKey: key) as? Date,
+           Date().timeIntervalSince(last) < 24 * 60 * 60 {
+            return
+        }
+        UserDefaults.standard.set(Date(), forKey: key)
+        check(product: product, interactive: false)
+    }
+
+    private func runCheck(product: String, interactive: Bool) async {
+        var request = URLRequest(url: manifestURL)
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.timeoutInterval = 20
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+                  let manifest = try? JSONDecoder().decode(Manifest.self, from: data) else {
+                throw UpdateError.manifest
+            }
+            guard let entry = manifest.products[product] else {
+                if interactive { info("No updates available", "There is no published update for this app yet.") }
+                return
+            }
+
+            let current = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
+            guard isNewer(entry.version, than: current) else {
+                if interactive { info("You're up to date", "\(entry.name ?? "This app") \(current) is the latest version.") }
+                return
+            }
+
+            if let minimum = entry.minimumSystemVersion, !systemIsAtLeast(minimum) {
+                if interactive { info("Update requires a newer macOS", "Version \(entry.version) needs macOS \(minimum) or later.") }
+                return
+            }
+
+            let skipped = UserDefaults.standard.string(forKey: "UpdateAgent.skipped.\(product)")
+            if !interactive, skipped == entry.version { return }
+
+            present(entry: entry, product: product, current: current)
+        } catch {
+            if interactive { info("Could not check for updates", error.localizedDescription) }
+        }
+    }
+
+    private func present(entry: Entry, product: String, current: String) {
+        let alert = NSAlert()
+        alert.messageText = "\(entry.name ?? "An update") \(entry.version) is available"
+        var body = entry.releaseNotes?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !body.isEmpty { body += "\n\n" }
+        body += "You have version \(current). The installer opens when the download finishes."
+        alert.informativeText = body
+        alert.addButton(withTitle: "Download Update")
+        alert.addButton(withTitle: "Later")
+        alert.addButton(withTitle: "Skip This Version")
+
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            guard let download = preferredDownload(entry.downloads) else {
+                info("No installer yet", "Version \(entry.version) is published without a downloadable installer.")
+                return
+            }
+            downloadAndOpen(download, entry: entry)
+        case .alertThirdButtonReturn:
+            UserDefaults.standard.set(entry.version, forKey: "UpdateAgent.skipped.\(product)")
+        default:
+            break
+        }
+    }
+
+    private func preferredDownload(_ downloads: [String: Download]?) -> Download? {
+        guard let downloads, !downloads.isEmpty else { return nil }
+        #if arch(arm64)
+        let order = ["arm64", "universal", "x86_64"]
+        #else
+        let order = ["x86_64", "intel", "universal", "arm64"]
+        #endif
+        for key in order {
+            if let download = downloads[key] { return download }
+        }
+        return downloads.values.first
+    }
+
+    private func downloadAndOpen(_ download: Download, entry: Entry) {
+        guard let url = URL(string: download.url), url.scheme == "https",
+              let host = url.host,
+              host == "cloudbridgetec.com" || host.hasSuffix(".cloudbridgetec.com") else {
+            info("Update link is not trusted", "The download link did not use the CloudBridge domain.")
+            return
+        }
+
+        showProgress(entry: entry)
+        downloadTask?.cancel()
+        downloadTask = Task {
+            do {
+                let (data, response) = try await URLSession.shared.data(from: url)
+                try Task.checkCancellation()
+                guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                    throw UpdateError.download
+                }
+                if let expected = download.size, Int64(data.count) != expected {
+                    throw UpdateError.size
+                }
+                if let expected = download.sha256?.lowercased(), sha256(data) != expected {
+                    throw UpdateError.checksum
+                }
+
+                let filename = url.lastPathComponent.isEmpty ? "\(entry.name ?? "Update").dmg" : url.lastPathComponent
+                let file = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
+                try data.write(to: file, options: .atomic)
+                hideProgress()
+                guard NSWorkspace.shared.open(file) else { throw UpdateError.open }
+                info("Update downloaded", "Quit \(entry.name ?? "the app") and replace it in Applications with the new version.")
+            } catch {
+                hideProgress()
+                if Task.isCancelled { return }
+                info("Could not download the update", error.localizedDescription)
+            }
+        }
+    }
+
+    private func showProgress(entry: Entry) {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 110),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Downloading \(entry.name ?? "update") \(entry.version)"
+        window.standardWindowButton(.closeButton)?.isHidden = true
+        window.standardWindowButton(.miniaturizeButton)?.isHidden = true
+
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: 420, height: 110))
+        let label = NSTextField(labelWithString: "Downloading the installer…")
+        label.frame = NSRect(x: 20, y: 64, width: 380, height: 20)
+        view.addSubview(label)
+
+        let spinner = NSProgressIndicator(frame: NSRect(x: 20, y: 32, width: 20, height: 20))
+        spinner.style = .spinning
+        spinner.startAnimation(nil)
+        view.addSubview(spinner)
+
+        let cancel = NSButton(title: "Cancel", target: self, action: #selector(cancelDownload))
+        cancel.frame = NSRect(x: 320, y: 12, width: 80, height: 30)
+        view.addSubview(cancel)
+
+        window.contentView = view
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+        progressWindow = window
+    }
+
+    private func hideProgress() {
+        progressWindow?.close()
+        progressWindow = nil
+    }
+
+    @objc private func cancelDownload() {
+        downloadTask?.cancel()
+        downloadTask = nil
+        hideProgress()
+    }
+
+    private func info(_ title: String, _ body: String) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = body
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
+    private func isNewer(_ candidate: String, than current: String) -> Bool {
+        let new = candidate.split(separator: ".").map { Int($0.prefix(while: { $0.isNumber })) ?? 0 }
+        let old = current.split(separator: ".").map { Int($0.prefix(while: { $0.isNumber })) ?? 0 }
+        for index in 0..<max(new.count, old.count) {
+            let left = index < new.count ? new[index] : 0
+            let right = index < old.count ? old[index] : 0
+            if left != right { return left > right }
+        }
+        return false
+    }
+
+    private func systemIsAtLeast(_ version: String) -> Bool {
+        let required = version.split(separator: ".").map { Int($0) ?? 0 }
+        let current = ProcessInfo.processInfo.operatingSystemVersion
+        let have = [current.majorVersion, current.minorVersion, current.patchVersion]
+        for index in 0..<max(required.count, have.count) {
+            let left = index < required.count ? required[index] : 0
+            let right = index < have.count ? have[index] : 0
+            if left != right { return right > left }
+        }
+        return true
+    }
+
+    private func sha256(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
 }
